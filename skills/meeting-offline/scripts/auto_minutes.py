@@ -221,8 +221,10 @@ def rule_issues(root, record, ctx):
         cid = problem['where'].removesuffix('.deadline'); claim = by_id.get(cid)
         if claim is None: raise InvalidOutput('规则返回未知结论。')
         issue = make_issue(record, claim, 'RULE_' + problem['kind'].upper(), problem['detail'], problem['evidence'])
-        confirmed = any(a['action'] == 'confirm' and a['issue_id'] == issue['id'] and a['claim_id'] == cid
-            and a['claim_hash'] == claim['hash'] and a['source_hash'] == ctx['source_hash'] for a in record['answers'])
+        confirmed = any(a['action'] == 'confirm' and a.get('actor') == 'user' and a.get('source_id') == ctx['source_id']
+            and type(a.get('answered_revision')) is int and 0 < a['answered_revision'] < record['revision']
+            and a['issue_id'] == issue['id'] and a['claim_id'] == cid and a['claim_hash'] == claim['hash']
+            and a['source_hash'] == ctx['source_hash'] for a in record['answers'])
         if not confirmed: result.append(issue)
     return result
 
@@ -248,7 +250,7 @@ def finalized(root, record, ctx):
         'source_hash': ctx['source_hash'], 'candidate_hash': w.digest(record.get('candidate')), 'review_hash': w.digest(record.get('review')), 'mode': record['content_state']}
     if any(final.get(k) != v for k, v in expected.items()) or record['checks'] != dict.fromkeys(CHECKS, 'pass') or record['issues']: return False
     try:
-        validate_draft(record['candidate'], ctx); validate_review(record['review'], record, ctx)
+        validate_draft(record['candidate'], ctx); validate_cached_review(record, ctx)
         if rule_issues(root, record, ctx) or semantic_issues(record): return False
     except (ValueError, TypeError, KeyError): return False
     return True
@@ -262,12 +264,20 @@ def request_for(stage, record, ctx):
         'claims': claims(record['candidate']), 'user_answers': record['answers']}
 
 
+def validate_cached_review(record, ctx):
+    review = validate_review(record['review'], record, ctx)
+    call_ = record['calls'].get('semantic_review', {})
+    if call_.get('status') != 'completed' or call_.get('input_hash') != w.digest(request_for('semantic_review', record, ctx)):
+        raise InvalidOutput('复核不属于当前请求或用户回答，需要重新独立复核。')
+    return review
+
+
 def next_stage(root, record, ctx):
     if record['candidate'] is None: return 'draft'
     validate_draft(record['candidate'], ctx)
     if rule_issues(root, record, ctx): return 'needs_review'
     if record['review'] is not None:
-        validate_review(record['review'], record, ctx)
+        validate_cached_review(record, ctx)
         return 'needs_review' if semantic_issues(record) else 'completed'
     return 'semantic_review'
 
@@ -282,7 +292,14 @@ def prepare(root, source_id=None):
     root = Path(root); ctx = context(root, source_id); folder = directory(root, ctx['source_id']); folder.mkdir(parents=True, exist_ok=True)
     with locked_file(folder / '.run.lock', blocking=False, busy_error=ProcessingBusy('会议正在处理。')):
         prior = load(root, ctx['source_id']); record = prior if current(prior, ctx) else fresh(ctx, prior)
-        if record['candidate'] is not None: validate_draft(record['candidate'], ctx)
+        if record['candidate'] is not None:
+            validate_draft(record['candidate'], ctx)
+            if record['review'] is not None:
+                try: validate_cached_review(record, ctx)
+                except InvalidOutput:
+                    record.update(review=None, finalization=None, pipeline_state='awaiting_ai', content_state='draft')
+                    record['checks']['semantic_review'] = 'inconclusive'
+                    record['issues'] = rule_issues(root, record, ctx)
         save(root, record, ctx); return prepared_request(root, record, ctx)
 
 
@@ -335,11 +352,15 @@ def run(root, source_id=None, *, runner=None, retry_ai=False, expected_request=N
             record['checks'].update(schema='pass', evidence_integrity='pass'); problems = rule_issues(root, record, ctx)
             record['checks']['rule_audit'] = 'blocked' if problems else 'pass'; record['issues'] = problems
             if not problems:
-                if record['review'] is not None: validate_review(record['review'], record, ctx)
+                if record['review'] is not None:
+                    try: validate_cached_review(record, ctx)
+                    except InvalidOutput:
+                        if retry_ai: record['review'] = None
+                        else: raise
                 if record['review'] is None:
                     record['review'] = validate_review(call(root, record, ctx, runner, 'semantic_review', request_for('semantic_review', record, ctx), retry_ai), record, ctx)
                     record['calls']['semantic_review']['status'] = 'completed'
-                record['review'] = validate_review(record['review'], record, ctx); problems += semantic_issues(record)
+                record['review'] = validate_cached_review(record, ctx); problems += semantic_issues(record)
                 record['checks']['semantic_review'] = 'blocked' if problems else 'pass'; record['issues'] = problems
             if problems: record.update(pipeline_state='needs_review', content_state='blocked', finalization=None)
             elif all(v == 'pass' for v in record['checks'].values()):

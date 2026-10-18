@@ -1,5 +1,5 @@
 ---
-name: meeting-minutes
+name: meeting-offline
 description: "把会议录音或转写整理成简洁的会议纪要（主题、时间、参会人、核心要点、主要Todo），交付可编辑 HTML 与直接生成的 PNG，并按设备积累用户确认过的角色与术语库。用户提到整理会议、会议记录、会议纪要、会议总结、复盘、录音转文字、语音备忘录、处理这段录音、meeting notes/minutes，给出会议录音或转写文件，或要继续、修改已有纪要时使用。"
 ---
 
@@ -9,7 +9,7 @@ description: "把会议录音或转写整理成简洁的会议纪要（主题、
 
 ## 开始
 
-运行 `python3 <skill-dir>/scripts/device_context.py init`，只使用它返回的 `memory`、`preferences`、`meetings`、`jobs`、`archive` 路径。新设备从空库开始；不要沿用旧电脑或聊天里的路径和人名。在 ChatGPT、Claude.ai 等云端沙箱里运行时（接触不到用户电脑、会话结束不保留文件），每条命令前加 `MEETING_MINUTES_SANDBOX=1`，按 [安装、工具适配与设备隔离](references/portability.md#云端沙箱chatgptclaudeai) 调整输入、交付和积累方式。
+运行 `python3 <skill-dir>/scripts/device_context.py init`，只使用它返回的 `memory`、`preferences`、`meetings`、`jobs`、`archive` 路径。新设备从空库开始；不要沿用旧电脑或聊天里的路径和人名。在 ChatGPT、Claude.ai 等云端沙箱里运行时（接触不到用户电脑、会话结束不保留文件），每条命令前加 `MEETING_OFFLINE_SANDBOX=1`，按 [安装、工具适配与设备隔离](references/portability.md#云端沙箱chatgptclaudeai) 调整输入、交付和积累方式。
 
 ## 流程
 

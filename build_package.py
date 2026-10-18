@@ -12,9 +12,9 @@ EXTRA = ['install.py', '安装说明.txt', 'MANIFEST.json']
 
 
 def skill_files(include_tests=True):
-    return sorted(p for p in (ROOT / 'meeting-minutes').rglob('*')
+    return sorted(p for p in (ROOT / 'meeting-offline').rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc'
-                  and (include_tests or 'tests' not in p.relative_to(ROOT / 'meeting-minutes').parts))
+                  and (include_tests or 'tests' not in p.relative_to(ROOT / 'meeting-offline').parts))
 
 
 def write_zip(path, files):
@@ -41,9 +41,9 @@ def main():
         args.out.mkdir(parents=True, exist_ok=True)
         version = manifest['version']
         # Local tools (Codex, Claude Code, WorkBuddy): run install.py from the unpacked folder.
-        write_zip(args.out / ('会议纪要技能-' + version + '-本地安装.zip'), [ROOT / n for n in EXTRA] + skill_files())
+        write_zip(args.out / ('meeting_offline-' + version + '-本地安装.zip'), [ROOT / n for n in EXTRA] + skill_files())
         # Cloud upload (ChatGPT, Claude.ai, WorkBuddy import): only the skill folder, SKILL.md one level down.
-        write_zip(args.out / ('meeting-minutes-' + version + '-upload.zip'), skill_files(include_tests=False))
+        write_zip(args.out / ('meeting_offline-' + version + '-upload.zip'), skill_files(include_tests=False))
 
 
 if __name__ == '__main__':

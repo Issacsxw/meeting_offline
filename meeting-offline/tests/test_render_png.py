@@ -49,7 +49,7 @@ class OfflineTests(unittest.TestCase):
 
     def test_missing_browser_keeps_html_and_reports(self):
         with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch.dict(os.environ, {'MEETING_MINUTES_BROWSER': str(Path(tmp) / 'none')}):
+                mock.patch.dict(os.environ, {'MEETING_OFFLINE_BROWSER': str(Path(tmp) / 'none')}):
             html = Path(tmp) / '纪要.html'; html.write_text(minutes_html.render(DOCUMENT), encoding='utf-8')
             result = minutes_html.png_for(html)
             self.assertIsNone(result['png'])
@@ -68,7 +68,7 @@ class WorkspacePublishTests(unittest.TestCase):
                        'todos': [{'action_index': 0, 'task': '交付报价单'}]}}}}
 
     def test_without_browser_export_succeeds_and_publish_accepts_manual_png(self):
-        with mock.patch.dict(os.environ, {'MEETING_MINUTES_BROWSER': str(self.base / 'none')}):
+        with mock.patch.dict(os.environ, {'MEETING_OFFLINE_BROWSER': str(self.base / 'none')}):
             w.set_analysis(self.root, self.analysis(), 1)
         files = w.read(self.root / 'exports/latest.json')['files']['4']
         self.assertNotIn('png', files); self.assertIn('png_error', files)

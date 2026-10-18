@@ -388,13 +388,14 @@ def public_state(root):
 
 
 def display_names():
-    """Optional preferences.meeting_minutes.display_names, e.g. {"用户本人": "我"}; empty by default."""
+    """Optional preferences.meeting_offline.display_names, e.g. {"用户本人": "我"}; empty by default."""
     path = device_context.paths()['preferences']
     if not path.exists():
         return {}
     preferences = read(path)
     device_context.require_device(preferences.get('device_id'), path)
-    names = preferences.get('meeting_minutes', {}).get('display_names', {})
+    # Preferences written before the rename keep their settings under 'meeting_minutes'.
+    names = (preferences.get('meeting_offline') or preferences.get('meeting_minutes') or {}).get('display_names', {})
     if not isinstance(names, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not v.strip() for k, v in names.items()):
         raise ValueError('preferences 中的 display_names 必须是“已确认称呼 → 纪要显示名”的文本映射。')
     return names

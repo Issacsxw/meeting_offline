@@ -44,7 +44,7 @@
 如需把某个已确认称呼在纪要里显示成别的写法（例如用户希望自己显示为“我”），由用户明确提出后写入初始化返回的 `preferences.json`：
 
 ```json
-{"meeting_minutes": {"display_names": {"用户本人": "我"}}}
+{"meeting_offline": {"display_names": {"用户本人": "我"}}}
 ```
 
 键是角色库里的姓名或称呼，值是纪要中的显示名。它只影响 HTML/PNG 的参会人和负责人，不改角色库、转写或底稿；默认为空。修改后重新 `workspace.py export`。
@@ -67,7 +67,7 @@ python3 <skill-dir>/scripts/minutes_html.py --document /path/to/document.json --
 python3 <skill-dir>/scripts/render_png.py --html /path/to/会议纪要.html [--out /path/to/会议纪要.png]
 ```
 
-脚本把 HTML 交给本机 Chrome/Edge/Chromium 无头运行，调用页面自己的“导出图片”逻辑（`makePng`），所以和用户点按钮得到的图完全一致：920 宽、2 倍清晰度、不含编辑工具栏。浏览器用临时配置目录，并关闭后台联网，不上传任何内容。找不到浏览器时可设 `MEETING_MINUTES_BROWSER` 或 `--browser`；仍不可用就退回让用户在页面里点“导出图片”。内容过长（超出图片高度上限）会直接报错，需要精简或拆分正文。
+脚本把 HTML 交给本机 Chrome/Edge/Chromium 无头运行，调用页面自己的“导出图片”逻辑（`makePng`），所以和用户点按钮得到的图完全一致：920 宽、2 倍清晰度、不含编辑工具栏。浏览器用临时配置目录，并关闭后台联网，不上传任何内容。找不到浏览器时可设 `MEETING_OFFLINE_BROWSER` 或 `--browser`；仍不可用就退回让用户在页面里点“导出图片”。内容过长（超出图片高度上限）会直接报错，需要精简或拆分正文。
 
 ## 用户修改后出新图
 

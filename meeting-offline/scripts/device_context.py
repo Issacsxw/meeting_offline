@@ -31,17 +31,22 @@ def system_identity():
             path = Path(name)
             if path.is_file() and path.read_text(encoding='utf-8').strip():
                 return 'linux:' + path.read_text(encoding='utf-8').strip().lower()
-    raise RuntimeError('无法读取稳定设备 ID；请为本机单独设置 MEETING_MINUTES_DEVICE_ID，不能沿用其他设备的值。'
-                       '在 ChatGPT、Claude.ai 等云端沙箱中改用 MEETING_MINUTES_SANDBOX=1。')
+    raise RuntimeError('无法读取稳定设备 ID；请为本机单独设置 MEETING_OFFLINE_DEVICE_ID，不能沿用其他设备的值。'
+                       '在 ChatGPT、Claude.ai 等云端沙箱中改用 MEETING_OFFLINE_SANDBOX=1。')
+
+
+def env(name):
+    """MEETING_OFFLINE_<name>, falling back to the MEETING_MINUTES_<name> used before the rename."""
+    return (os.environ.get('MEETING_OFFLINE_' + name) or os.environ.get('MEETING_MINUTES_' + name) or '').strip()
 
 
 def sandbox():
     """Cloud sandboxes (ChatGPT, Claude.ai uploads) have no stable machine or persistent home."""
-    return os.environ.get('MEETING_MINUTES_SANDBOX', '').strip().lower() in ('1', 'true', 'yes')
+    return env('SANDBOX').lower() in ('1', 'true', 'yes')
 
 
 def device_id():
-    override = os.environ.get('MEETING_MINUTES_DEVICE_ID', '').strip()
+    override = env('DEVICE_ID')
     if override:
         raw = 'manual:' + override
     elif sandbox():
@@ -50,17 +55,22 @@ def device_id():
         raw = 'sandbox:v1'
     else:
         raw = system_identity()
+    # The namespace keeps its pre-rename value so existing devices keep their IDs and data.
     return hashlib.sha256(('meeting-minutes:v1:' + raw).encode()).hexdigest()[:24]
 
 
 def data_home():
-    if os.environ.get('MEETING_MINUTES_DATA_HOME'):
-        return Path(os.environ['MEETING_MINUTES_DATA_HOME'])
+    if env('DATA_HOME'):
+        return Path(env('DATA_HOME'))
     if sandbox():
-        return Path.cwd() / 'meeting-minutes-data'
-    # Shared by every local AI tool on this computer; installs before 11.4 kept it under .codex.
-    legacy = Path.home() / '.codex' / 'meeting-minutes-memory'
-    return legacy if legacy.is_dir() else Path.home() / '.meeting-minutes'
+        return Path.cwd() / 'meeting-offline-data'
+    # Shared by every local AI tool on this computer. Existing data stays where it is:
+    # 11.4 used ~/.meeting-minutes, earlier versions ~/.codex/meeting-minutes-memory.
+    current = Path.home() / '.meeting-offline'
+    for legacy in (Path.home() / '.meeting-minutes', Path.home() / '.codex' / 'meeting-minutes-memory'):
+        if not current.is_dir() and legacy.is_dir():
+            return legacy
+    return current
 
 
 def paths():
@@ -121,7 +131,7 @@ def initialize():
         require_device(json.loads(current['memory'].read_text(encoding='utf-8')).get('device_id'), current['memory'])
     if not current['preferences'].exists():
         atomic_json(current['preferences'], {'schema_version': 1, 'device_id': current['device_id'],
-            'meeting_minutes': {'default_template': 'claude-warm',
+            'meeting_offline': {'default_template': 'claude-warm',
                 'default_outputs': ['editable-html', 'png'],
                 'archive': {'root': str(current['archive']), 'audio_action': 'move'}}})
     else:

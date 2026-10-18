@@ -41,8 +41,9 @@ class BrowserNotFound(RuntimeError):
 
 
 def find_browser(explicit=None):
-    if explicit or os.environ.get('MEETING_MINUTES_BROWSER'):
-        path = Path(os.path.expandvars(str(explicit or os.environ['MEETING_MINUTES_BROWSER']))).expanduser()
+    configured = explicit or os.environ.get('MEETING_OFFLINE_BROWSER') or os.environ.get('MEETING_MINUTES_BROWSER')
+    if configured:
+        path = Path(os.path.expandvars(str(configured))).expanduser()
         if not path.is_file():
             raise BrowserNotFound('指定的浏览器不存在：' + str(path))
         return path
@@ -66,7 +67,7 @@ def find_browser(explicit=None):
             found = sorted(root.glob(pattern)) if root.is_dir() else []
             if found:
                 return found[-1]
-    raise BrowserNotFound('未找到 Chrome/Edge/Chromium；可设置 MEETING_MINUTES_BROWSER，或在 HTML 中点击“导出图片”。')
+    raise BrowserNotFound('未找到 Chrome/Edge/Chromium；可设置 MEETING_OFFLINE_BROWSER，或在 HTML 中点击“导出图片”。')
 
 
 def inject(source):
@@ -127,7 +128,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--html', type=Path, required=True, help='生成的或用户保存过修改的纪要 HTML')
     parser.add_argument('--out', type=Path, help='PNG 路径；默认与 HTML 同名')
-    parser.add_argument('--browser', help='Chrome/Edge/Chromium 可执行文件；也可用 MEETING_MINUTES_BROWSER')
+    parser.add_argument('--browser', help='Chrome/Edge/Chromium 可执行文件；也可用 MEETING_OFFLINE_BROWSER')
     args = parser.parse_args()
     try:
         result = render(args.html, args.out, args.browser)

@@ -1,6 +1,6 @@
 # 本地角色库与术语库
 
-记忆库由 `device_context.py init` 返回的 `memory` 路径定位，默认在 `~/.meeting-minutes/devices/<device-id>/memory.json`（旧版在 `~/.codex/meeting-minutes-memory/`），同一台电脑上的各 AI 工具共用，与技能文件分开，只在本机使用，不随技能包导出，也不自动发送给转写服务。可用 `scripts/memory.py --store <path>` 指定团队或项目独立的库；不要自动跨库混用角色。
+记忆库由 `device_context.py init` 返回的 `memory` 路径定位，默认在 `~/.meeting-offline/devices/<device-id>/memory.json`（旧版本的 `~/.meeting-minutes/` 或 `~/.codex/meeting-minutes-memory/` 存在时继续使用），同一台电脑上的各 AI 工具共用，与技能文件分开，只在本机使用，不随技能包导出，也不自动发送给转写服务。可用 `scripts/memory.py --store <path>` 指定团队或项目独立的库；不要自动跨库混用角色。
 
 ## 每次会议开始时
 

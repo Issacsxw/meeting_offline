@@ -65,16 +65,24 @@ class MinutesHtmlTests(unittest.TestCase):
         self.assertEqual((seed['participants'], seed['todos'][0]['owner']), ('用户本人', '用户本人'))
 
     def test_display_names_preference_renames_in_minutes_only(self):
-        with tempfile.TemporaryDirectory() as data, mock.patch.dict(os.environ, {'MEETING_MINUTES_DATA_HOME': data}):
+        with tempfile.TemporaryDirectory() as data, mock.patch.dict(os.environ, {'MEETING_OFFLINE_DATA_HOME': data}):
             preferences = device_context.initialize()['preferences']
-            value = w.read(preferences); value['meeting_minutes']['display_names'] = {'甲': '我'}; w.write(preferences, value)
+            value = w.read(preferences); value['meeting_offline']['display_names'] = {'甲': '我'}; w.write(preferences, value)
             w.set_analysis(self.root, self.analysis(), 1)
             seed = self.seed()
             self.assertEqual((seed['participants'], seed['todos'][0]['owner']), ('我', '我'))
             self.assertIn('甲', Path(w.read(self.root / 'exports/latest.json')['files']['4']['transcript']).read_text())
-            value['meeting_minutes']['display_names'] = {'甲': ''}; w.write(preferences, value)
+            value['meeting_offline']['display_names'] = {'甲': ''}; w.write(preferences, value)
             with self.assertRaisesRegex(ValueError, 'display_names'):
                 w.export(self.root)
+
+    def test_display_names_under_pre_rename_key_still_apply(self):
+        with tempfile.TemporaryDirectory() as data, mock.patch.dict(os.environ, {'MEETING_OFFLINE_DATA_HOME': data}):
+            preferences = device_context.initialize()['preferences']
+            value = w.read(preferences); value.pop('meeting_offline')
+            value['meeting_minutes'] = {'display_names': {'甲': '我'}}; w.write(preferences, value)
+            w.set_analysis(self.root, self.analysis(), 1)
+            self.assertEqual(self.seed()['participants'], '我')
 
     def test_legacy_role_name_and_accepted_unknown(self):
         state = w.read(self.root / 'state.json')

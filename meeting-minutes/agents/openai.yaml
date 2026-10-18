@@ -1,4 +1,0 @@
-interface:
-  display_name: "会议纪要"
-  short_description: "转写录音并生成可编辑会议纪要与图片，按设备分别积累角色和术语"
-  default_prompt: "使用 $meeting-minutes，交付简洁清晰的会议纪要：会议时间、会议主题、参会人、核心要点、主要Todo；生成可直接编辑并导出图片的HTML及PNG，需要时复核角色与术语，并在当前设备独立积累角色与术语。"

@@ -17,16 +17,18 @@ HOME = Path.home()
 TARGETS = {
     'codex': {'name': 'Codex', 'skills': HOME / '.agents' / 'skills',
               'marker': Path(os.environ.get('CODEX_HOME') or HOME / '.codex'),
-              'use': '重新打开 Codex，输入 $meeting-minutes 或直接说“整理这份会议录音”。'},
+              'use': '重新打开 Codex，输入 $meeting-offline 或直接说“整理这份会议录音”。'},
     'claude': {'name': 'Claude Code', 'skills': HOME / '.claude' / 'skills', 'marker': HOME / '.claude',
-               'use': '重新打开 Claude Code，输入 /meeting-minutes 或直接说“整理这份会议录音”。'},
+               'use': '重新打开 Claude Code，输入 /meeting-offline 或直接说“整理这份会议录音”。'},
     'workbuddy': {'name': 'WorkBuddy', 'skills': HOME / '.workbuddy' / 'skills', 'marker': HOME / '.workbuddy',
                   'use': '在 WorkBuddy 新开会话，直接说“用会议纪要技能整理这份录音”。'},
     'codebuddy': {'name': 'CodeBuddy / WorkBuddy 企业版', 'skills': HOME / '.codebuddy' / 'skills',
                   'marker': HOME / '.codebuddy', 'use': '新开会话，直接说“用会议纪要技能整理这份录音”。'},
 }
-# Codex used to read $CODEX_HOME/skills; a copy left there would show up twice.
-LEGACY_CODEX = Path(os.environ.get('CODEX_HOME') or HOME / '.codex') / 'skills' / 'meeting-minutes'
+NAME = 'meeting-offline'
+# Copies under the old skill name, or in the old Codex location, would show up as a second skill.
+OLD_NAMES = ['meeting-minutes']
+LEGACY_CODEX_SKILLS = Path(os.environ.get('CODEX_HOME') or HOME / '.codex') / 'skills'
 
 
 def verify(bundle, source, parser):
@@ -46,17 +48,17 @@ def verify(bundle, source, parser):
 def backup(path):
     backups = path.parent.parent / 'skill-backups'
     backups.mkdir(exist_ok=True)
-    target = backups / ('meeting-minutes-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+    target = backups / (path.name + '-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
     path.rename(target)
     print('旧技能备份：' + str(target))
 
 
 def install(source, skills_dir):
-    destination = skills_dir.expanduser().resolve() / 'meeting-minutes'
+    destination = skills_dir.expanduser().resolve() / NAME
     destination.parent.mkdir(parents=True, exist_ok=True)
     if source.resolve() != destination:
         with tempfile.TemporaryDirectory(prefix='.meeting-skill-', dir=str(destination.parent)) as temporary:
-            staged = Path(temporary) / 'meeting-minutes'
+            staged = Path(temporary) / NAME
             shutil.copytree(source, staged, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             if destination.exists():
                 backup(destination)
@@ -73,7 +75,7 @@ def main():
     if sys.version_info < (3, 9):
         parser.exit(1, '需要 Python 3.9 或更新版本。\n')
     bundle = Path(__file__).resolve().parent
-    source = bundle / 'meeting-minutes'
+    source = bundle / NAME
     verify(bundle, source, parser)
     if args.skills_dir:
         if args.target:
@@ -89,8 +91,12 @@ def main():
     installed = []
     for key, target in chosen:
         destination = install(source, target['skills'])
-        if key == 'codex' and LEGACY_CODEX.is_dir() and LEGACY_CODEX.resolve() != destination:
-            backup(LEGACY_CODEX)
+        stale = [destination.parent / old for old in OLD_NAMES]
+        if key == 'codex':
+            stale += [LEGACY_CODEX_SKILLS / name for name in [NAME, *OLD_NAMES]]
+        for path in stale:
+            if path.is_dir() and path.resolve() != destination:
+                backup(path)
         installed.append((target, destination))
     # No API-key access, upload, MCP installation or system-setting changes.
     subprocess.run([sys.executable, str(installed[0][1] / 'scripts/device_context.py'), 'init'], check=True)

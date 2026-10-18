@@ -3,7 +3,7 @@
 用户让你安装 meeting_offline 时，按这份说明做。技能名是 `meeting-offline`，技能文件夹在本仓库的 `skills/meeting-offline/`，里面的 `SKILL.md` 是入口。
 
 - 仓库：https://github.com/sunxuwang001-sketch/meeting_offline
-- 用途：把会议录音或转写整理成会议纪要（主题、时间、参会人、核心要点、主要 Todo），交付可编辑 HTML 和 PNG；说话人身份由用户确认，确认过的角色和术语保存在本机。
+- 用途：把会议录音整理成会议纪要（主题、时间、参会人、核心要点、主要 Todo），交付可编辑 HTML 和 PNG；说话人身份由用户确认，确认过的角色和术语保存在本机。
 - 依赖：Python 3.9+（只用标准库）。生成 PNG 用本机的 Chrome、Edge 或 Chromium，没有也能用。
 - 许可证：MIT。
 
@@ -63,8 +63,8 @@ python3 <技能文件夹>/scripts/device_context.py init
 ## 装好后告诉用户
 
 1. 重新打开（或新开一个会话）让技能生效。
-2. 直接说“整理这份会议录音”或“把这份文字稿整理成纪要”即可使用；Codex 可输入 `$meeting-offline`，Claude Code 可输入 `/meeting-offline`。
-3. 只有需要把录音转成文字时，才要配置阿里云 DashScope API Key：macOS 运行 `<技能文件夹>/scripts/setup_keychain.sh`，其他系统设置环境变量 `DASHSCOPE_API_KEY`。已有文字稿不需要。
+2. 直接说“整理这份会议录音”或“帮我找一下最近的会议录音”即可使用；Codex 可输入 `$meeting-offline`，Claude Code 可输入 `/meeting-offline`。
+3. 转写录音需要配置一次阿里云 DashScope API Key：macOS 运行 `<技能文件夹>/scripts/setup_keychain.sh`，其他系统设置环境变量 `DASHSCOPE_API_KEY`。
 
 ## 注意
 

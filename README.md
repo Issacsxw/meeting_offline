@@ -17,7 +17,7 @@
 
 **meeting_offline** 是一个装进 AI 助手里的会议纪要技能。
 
-把会议录音或转写交给它，告诉它谁是谁，就能得到一份简洁的纪要：主题、时间、参会人、核心要点和主要 Todo。纪要同时交付可直接修改的网页（HTML）和一张可以发到群里的图片（PNG）。
+把会议录音交给它，告诉它谁是谁，就能得到一份简洁的纪要：主题、时间、参会人、核心要点和主要 Todo。纪要同时交付可直接修改的网页（HTML）和一张可以发到群里的图片（PNG）。
 
 <br>
 
@@ -35,7 +35,7 @@ AI 会按 [INSTALL.md](INSTALL.md) 选择合适的方式装好，重新打开工
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/workflow-dark.png">
-  <img src="docs/workflow.png" alt="三步：交给它录音或转写，告诉它谁是谁，拿到纪要" width="100%">
+  <img src="docs/workflow.png" alt="三步：交给它会议录音，告诉它谁是谁，拿到纪要" width="100%">
 </picture>
 
 - **不编造**：负责人和期限只写会上说过的，没说就留空
@@ -75,7 +75,7 @@ python3 install.py        # Windows：py -3 install.py
 
 **ChatGPT、Claude.ai**：下载 [`upload.zip`](https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest)，在技能设置里上传。
 
-装好后重新打开 AI 工具。需要把录音转成文字时，还要配置一次阿里云 DashScope API Key，见[常见问题](#常见问题)；已有文字稿可以跳过。
+装好后重新打开 AI 工具。转写录音还需要配置一次阿里云 DashScope API Key，见[常见问题](#常见问题)。
 
 <br>
 
@@ -87,7 +87,7 @@ python3 install.py        # Windows：py -3 install.py
 | :-- | :-- |
 | 整理录音 | 整理这份会议录音：~/Downloads/周会.m4a |
 | 用语音备忘录 | 用语音备忘录里最新那条录音出纪要 |
-| 已有文字稿 | 把这份会议文字稿整理成纪要 |
+| 找最近的录音 | 帮我找一下最近的会议录音 |
 | 改人名 | 1-B 其实是王五，重新出一版 |
 | 改错词 | “普罗”应该是“示例Pro” |
 | 重新出图 | 我改了这份 HTML，帮我重新生成图片 |
@@ -113,7 +113,7 @@ python3 install.py        # Windows：py -3 install.py
 <summary>要付费吗？</summary>
 <br>
 
-技能免费（MIT 许可证）。你需要自己的 AI 工具账号；转写录音时，阿里云 DashScope 按量计费，已有文字稿则不需要。
+技能免费（MIT 许可证）。你需要自己的 AI 工具账号；转写录音由阿里云 DashScope 按量计费。
 </details>
 
 <details>

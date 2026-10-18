@@ -1,5 +1,10 @@
 # 更新记录
 
+## 11.7.0
+
+- 新增“找最近的录音”：`scripts/find_recordings.py` 在 iCloud 云盘、下载、桌面（Windows 包括 OneDrive 桌面）中列出最近的 m4a、wav、mp4 录音，标出还没从 iCloud 下载的文件；只读，不移动、不上传。
+- 输入改为只接受会议录音：只有文字稿、没有录音的情况不再支持；同一段录音已有的转写结果仍会复用。
+
 ## 11.6.0
 
 - 让 AI 助手直接从 GitHub 安装：新增写给 AI 的 `INSTALL.md`；README 开头加上“让 AI 帮你安装”。

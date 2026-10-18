@@ -1,6 +1,19 @@
 # 录音转写
 
-先运行 `scripts/device_context.py init`。优先导入已有时间戳转写，不因角色或术语改动重新上传。没有转写时使用本包的 `scripts/transcribe_qwen.py`；每次调用处理一个录音，用户明确选择多条时逐条执行，不自行扩大范围。
+先运行 `scripts/device_context.py init`。输入必须是会议录音；只有文字稿、没有录音时，告诉用户本技能需要录音，不要自行整理文字稿。同一段录音已有的转写结果（本机任务缓存或 `--import-result` 登记的结果）直接复用，不因角色或术语改动重新上传。没有转写时使用本包的 `scripts/transcribe_qwen.py`；每次调用处理一个录音，用户明确选择多条时逐条执行，不自行扩大范围。
+
+## 找录音
+
+用户给了路径就直接用。没给路径时：macOS 先查语音备忘录（见下文）；其他录音运行
+
+```bash
+python3 <skill-dir>/scripts/find_recordings.py            # 默认最近 30 天、最多 20 条
+python3 <skill-dir>/scripts/find_recordings.py --days 7 --dir /path/to/其他文件夹
+```
+
+它只读取文件信息，在 iCloud 云盘、下载、桌面（Windows 包括 OneDrive 桌面）里查找 m4a、wav、mp4，跳过隐藏文件夹和已归档的会议，按修改时间从新到旧列出路径、位置、大小和时长，不移动、不上传任何文件。把结果整理成简短列表让用户选；`downloaded: false` 表示文件还在 iCloud 上没下载到本机，请用户在访达里点开下载后再处理。macOS 第一次访问这些文件夹时可能弹出权限提示，由用户决定是否允许。
+
+## 来源说明
 
 本地文件直接按已确认的归档流程处理。Apple 语音备忘录先用只读 MCP 的 `list_voice_memos`、`get_voice_memo`、`get_transcript` 检查原始日期、时长及已有转写，再以 `get_audio(format=path)` 取得本地路径。托管原件保持只读，不调用 `transcribe_memo` 或任何写入/删除工具。配置见 [只读 MCP 与本机密钥](voice-memos-setup.md)。
 

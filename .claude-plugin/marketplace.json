@@ -6,7 +6,7 @@
     {
       "name": "meeting-offline",
       "source": "./",
-      "description": "把会议录音或转写整理成简洁的会议纪要，交付可编辑 HTML 与 PNG；说话人由你确认，角色与术语在本机持续积累。",
+      "description": "把会议录音整理成简洁的会议纪要，交付可编辑 HTML 与 PNG；说话人由你确认，角色与术语在本机持续积累。",
       "category": "productivity"
     }
   ]

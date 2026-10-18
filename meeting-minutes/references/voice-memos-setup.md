@@ -20,27 +20,31 @@ Open Apple Voice Memos once before continuing.
 npm install -g apple-voice-memo-mcp
 ```
 
-Add this block to `~/.codex/config.toml`:
+Register it with the AI tool you use, exposing only the read-only tools:
 
-```toml
-[mcp_servers.apple-voice-memo-mcp]
-command = "npx"
-args = ["-y", "apple-voice-memo-mcp"]
-enabled_tools = ["list_voice_memos", "get_voice_memo", "get_audio", "get_transcript"]
-enabled = true
-```
+- **Codex** — add to `~/.codex/config.toml`:
 
-The restricted tool list intentionally excludes `transcribe_memo` and any future write-like tools.
+  ```toml
+  [mcp_servers.apple-voice-memo-mcp]
+  command = "npx"
+  args = ["-y", "apple-voice-memo-mcp"]
+  enabled_tools = ["list_voice_memos", "get_voice_memo", "get_audio", "get_transcript"]
+  enabled = true
+  ```
 
-Restart Codex after changing the MCP configuration.
+- **Claude Code** — run `claude mcp add apple-voice-memo -- npx -y apple-voice-memo-mcp`, then allow only the four tools above (for example in `permissions.allow` of `~/.claude/settings.json`) and deny `transcribe_memo`.
+- **WorkBuddy / CodeBuddy** — add an MCP server in the app settings with command `npx` and arguments `-y apple-voice-memo-mcp`, and enable only the four tools above.
+
+The restricted tool list intentionally excludes `transcribe_memo` and any future write-like tools. Cloud sandboxes (ChatGPT, Claude.ai) cannot reach Voice Memos; export the recording and upload it instead.
+
+Restart the AI tool after changing the MCP configuration.
 
 ## 3. Grant Full Disk Access
 
 Open **System Settings → Privacy & Security → Full Disk Access**.
 
-- Codex desktop: enable **Codex**.
-- Codex CLI in Terminal: enable **Terminal**.
-- Codex CLI in iTerm: enable **iTerm**.
+- A desktop app (Codex, WorkBuddy, Claude desktop): enable that app.
+- A CLI (Codex CLI, Claude Code) in Terminal or iTerm: enable **Terminal** or **iTerm**.
 
 Grant access to the application that actually launches the MCP server. Voice Memos itself does not need additional Full Disk Access for this workflow.
 
@@ -60,7 +64,7 @@ The default Keychain service name is device-scoped; read it with `python3 <skill
 export DASHSCOPE_API_KEY='your-key'
 ```
 
-Do not put the key in `SKILL.md`, shell history, Codex configuration, or a transcript file.
+Do not put the key in `SKILL.md`, shell history, AI tool configuration, or a transcript file.
 
 ## 5. Verify without uploading audio
 
@@ -72,7 +76,7 @@ python3 <skill-dir>/scripts/transcribe_qwen.py \
 
 The dry run reports duration, model, and route. It does not read a key, upload audio, or call Qwen.
 
-Then ask Codex:
+Then ask your AI tool:
 
 > 用 Apple 语音备忘录转写 Skill，列出最近 5 条；先看苹果转写，再让我确认是否云端转写最新一条。
 
@@ -116,4 +120,4 @@ python3 <skill-dir>/scripts/transcribe_qwen.py \
 
 Weights are 1–5, or 50 for a super hotword; no more than 50 super hotwords or 2000 total entries. For audio up to 5 minutes, add `--filetrans` explicitly when using this file-model-only parameter. Use small relevant vocabularies and compare on authorized future recordings before claiming improved accuracy.
 
-Job manifests, raw long-task responses, normalized transcripts and hashes are stored in `~/.codex/meeting-minutes-memory/devices/<device-id>/transcription-jobs/`. They are private local data and excluded from the Skill package. No API key is stored there. A changed hotword list selects a different ASR job; correcting downstream role names or terms should reuse the original ASR result through the meeting workspace instead.
+Job manifests, raw long-task responses, normalized transcripts and hashes are stored in the `jobs` path printed by `device_context.py init` (by default `~/.meeting-minutes/devices/<device-id>/transcription-jobs/`). They are private local data and excluded from the Skill package. No API key is stored there. A changed hotword list selects a different ASR job; correcting downstream role names or terms should reuse the original ASR result through the meeting workspace instead.

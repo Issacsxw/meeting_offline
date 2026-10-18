@@ -54,9 +54,18 @@ def find_browser(explicit=None):
         found = shutil.which(command)
         if found:
             return Path(found)
-    bundled = Path(os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '/opt/pw-browsers')) / 'chromium'
-    if bundled.is_file():
-        return bundled
+    # Playwright's Chromium is often the only browser in cloud sandboxes.
+    roots = [Path(os.environ['PLAYWRIGHT_BROWSERS_PATH'])] if os.environ.get('PLAYWRIGHT_BROWSERS_PATH') else []
+    roots += [Path('/opt/pw-browsers'), Path.home() / '.cache' / 'ms-playwright',
+              Path.home() / 'Library' / 'Caches' / 'ms-playwright', Path(os.environ.get('LOCALAPPDATA', '')) / 'ms-playwright']
+    for root in roots:
+        if (root / 'chromium').is_file():
+            return root / 'chromium'
+        for pattern in ('chromium-*/chrome-linux*/chrome', 'chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium',
+                        'chromium-*/chrome-win*/chrome.exe'):
+            found = sorted(root.glob(pattern)) if root.is_dir() else []
+            if found:
+                return found[-1]
     raise BrowserNotFound('未找到 Chrome/Edge/Chromium；可设置 MEETING_MINUTES_BROWSER，或在 HTML 中点击“导出图片”。')
 
 

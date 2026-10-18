@@ -31,18 +31,41 @@ def system_identity():
             path = Path(name)
             if path.is_file() and path.read_text(encoding='utf-8').strip():
                 return 'linux:' + path.read_text(encoding='utf-8').strip().lower()
-    raise RuntimeError('无法读取稳定设备 ID；请为本机单独设置 MEETING_MINUTES_DEVICE_ID，不能沿用其他设备的值。')
+    raise RuntimeError('无法读取稳定设备 ID；请为本机单独设置 MEETING_MINUTES_DEVICE_ID，不能沿用其他设备的值。'
+                       '在 ChatGPT、Claude.ai 等云端沙箱中改用 MEETING_MINUTES_SANDBOX=1。')
+
+
+def sandbox():
+    """Cloud sandboxes (ChatGPT, Claude.ai uploads) have no stable machine or persistent home."""
+    return os.environ.get('MEETING_MINUTES_SANDBOX', '').strip().lower() in ('1', 'true', 'yes')
 
 
 def device_id():
     override = os.environ.get('MEETING_MINUTES_DEVICE_ID', '').strip()
-    raw = 'manual:' + override if override else system_identity()
+    if override:
+        raw = 'manual:' + override
+    elif sandbox():
+        # One shared identity for all sandbox sessions, so a downloaded memory.json can be uploaded
+        # again later; it never matches a real computer, so local data is not mixed in.
+        raw = 'sandbox:v1'
+    else:
+        raw = system_identity()
     return hashlib.sha256(('meeting-minutes:v1:' + raw).encode()).hexdigest()[:24]
+
+
+def data_home():
+    if os.environ.get('MEETING_MINUTES_DATA_HOME'):
+        return Path(os.environ['MEETING_MINUTES_DATA_HOME'])
+    if sandbox():
+        return Path.cwd() / 'meeting-minutes-data'
+    # Shared by every local AI tool on this computer; installs before 11.4 kept it under .codex.
+    legacy = Path.home() / '.codex' / 'meeting-minutes-memory'
+    return legacy if legacy.is_dir() else Path.home() / '.meeting-minutes'
 
 
 def paths():
     identity = device_id()
-    base = Path(os.environ.get('MEETING_MINUTES_DATA_HOME') or Path.home() / '.codex/meeting-minutes-memory').expanduser().resolve()
+    base = data_home().expanduser().resolve()
     profile_dir = base / 'devices' / identity
     profile_path = profile_dir / 'device.json'
     profile = json.loads(profile_path.read_text(encoding='utf-8')) if profile_path.exists() else {}
@@ -52,8 +75,9 @@ def paths():
     legacy = profile.get('legacy_root') == str(base) and data_root == base
     if data_root != profile_dir and not legacy:
         raise ValueError('设备档案包含未经绑定的数据目录。')
-    archive = Path(profile.get('archive_root') or Path.home() / 'Documents' / '会议纪要' / identity).expanduser().resolve()
-    return {'device_id': identity, 'base': base, 'profile_dir': profile_dir,
+    default_archive = base / '会议纪要' if sandbox() else Path.home() / 'Documents' / '会议纪要' / identity
+    archive = Path(profile.get('archive_root') or default_archive).expanduser().resolve()
+    return {'device_id': identity, 'sandbox': sandbox(), 'base': base, 'profile_dir': profile_dir,
             'profile': profile_path, 'data_root': data_root, 'legacy': legacy,
             'memory': data_root / 'memory.json', 'preferences': data_root / 'preferences.json',
             'meetings': data_root / 'meetings', 'jobs': data_root / 'transcription-jobs',

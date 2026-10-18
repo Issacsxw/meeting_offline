@@ -9,7 +9,7 @@ description: "把会议录音或转写整理成简洁的会议纪要（主题、
 
 ## 开始
 
-运行 `python3 <skill-dir>/scripts/device_context.py init`，只使用它返回的 `memory`、`preferences`、`meetings`、`jobs`、`archive` 路径。新设备从空库开始；不要沿用旧电脑或聊天里的路径和人名。详见 [安装与设备隔离](references/portability.md)。
+运行 `python3 <skill-dir>/scripts/device_context.py init`，只使用它返回的 `memory`、`preferences`、`meetings`、`jobs`、`archive` 路径。新设备从空库开始；不要沿用旧电脑或聊天里的路径和人名。在 ChatGPT、Claude.ai 等云端沙箱里运行时（接触不到用户电脑、会话结束不保留文件），每条命令前加 `MEETING_MINUTES_SANDBOX=1`，按 [安装、工具适配与设备隔离](references/portability.md#云端沙箱chatgptclaudeai) 调整输入、交付和积累方式。
 
 ## 流程
 
@@ -62,7 +62,7 @@ description: "把会议录音或转写整理成简洁的会议纪要（主题、
 
 | 何时读 | 文档 |
 | --- | --- |
-| 安装、换电脑、路径与设备 ID | [portability.md](references/portability.md) |
+| 安装到各工具、云端沙箱、换电脑、设备 ID | [portability.md](references/portability.md) |
 | 移动录音、归档交付物 | [archive.md](references/archive.md) |
 | 只有音频需要转写 | [transcription.md](references/transcription.md)、[voice-memos-setup.md](references/voice-memos-setup.md) |
 | 观点卡片、角色映射、跨轮状态 | [roles.md](references/roles.md) |

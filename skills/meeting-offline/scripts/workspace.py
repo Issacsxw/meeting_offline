@@ -442,7 +442,9 @@ def export(root):
     corrections = read(root / 'corrections.json')
     protected = sorted(protected_forms(state, corrections))
     shown_names = display_names(); theme = preferred_theme(); layout = preferred_layout(); links = vault_links(state)
-    signature = digest({'theme': theme, 'layout': layout, 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
+    private = read(root / 'insights.json') if (root / 'insights.json').exists() else {'sources': {}}
+    signature = digest({'theme': theme, 'layout': layout, 'insights': private,
+                        'insights_renderer': file_digest(Path(__file__).with_name('insights.py')), 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
                         'display_names': shown_names, 'vault_links': links,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
                         'md_renderer': file_digest(minutes_md.__file__),
@@ -542,6 +544,17 @@ def export(root):
                                                                          people=document['people'], links=links))):
                 path = directory / (sid + '-' + suffix)
                 path.write_text(text, encoding='utf-8'); files[kind] = str(path)
+            if sid in private['sources']:
+                # Private analysis of each person; a separate file, never part of the shared minutes.
+                import insights
+                try:
+                    insights.validate(root, {'sources': {sid: private['sources'][sid]}})
+                    text = insights.markdown(root, state, sid, private['sources'][sid], corrections, protected, shown_names,
+                                             links, document['topic'], meeting_date)
+                except ValueError as error:
+                    files['insight_error'] = str(error)
+                else:
+                    path = directory / (sid + '-深度洞察.md'); path.write_text(text, encoding='utf-8'); files['insight_md'] = str(path)
         output['files'][sid] = files
     write(root / 'exports/latest.json', output)
     return output
@@ -567,7 +580,7 @@ def publish(root, source_ids=None, png_overrides=None):
             if not png:
                 raise ValueError('来源 ' + sid + ' 没有 PNG：' + exported.get('png_error', '')
                                  + ' 可在 HTML 中导出图片后用 --png ' + sid + '=路径 指定。')
-            documents = [('html', exported['html']), ('png', png)] + [(k, exported[k]) for k in ('md', 'transcript_md') if exported.get(k)]
+            documents = [('html', exported['html']), ('png', png)] + [(k, exported[k]) for k in ('md', 'transcript_md', 'insight_md') if exported.get(k)]
             files[sid] = {kind: {'path': str(Path(value).resolve()), 'sha256': file_digest(value)} for kind, value in documents}
         publication = read(root / 'publication.json') if (root / 'publication.json').exists() else {}
         publication.update(export_version=latest['version'], revision=state['revision'], published_at=now())

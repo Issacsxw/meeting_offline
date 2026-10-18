@@ -15,7 +15,7 @@ import workspace as w
 
 DEFAULT_ROOT = device_context.paths()['archive']
 # Archived names per deliverable; Markdown links in 会议纪要.md point at these.
-NAMES = {'html': '会议纪要.html', 'png': '会议纪要.png', 'md': '会议纪要.md', 'transcript_md': '逐字稿.md'}
+NAMES = {'html': '会议纪要.html', 'png': '会议纪要.png', 'md': '会议纪要.md', 'transcript_md': '逐字稿.md', 'insight_md': '深度洞察.md'}
 
 
 def safe_name(value):

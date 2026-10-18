@@ -20,6 +20,7 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 5. **写纪要**：角色确定（或用户明确接受部分未知）后直接写，不再问“是否开始”。内容要求见下文，写入与生成见 [HTML 与 PNG](references/publish-html.md)。
 6. **交付与归档**：脚本同时生成 HTML、PNG 和 Markdown（`会议纪要.md`、`逐字稿.md`）；打开 PNG 检查后 `workspace.py publish`，再归档到会议文件夹（设置了 Obsidian 库时就在库里）。
 7. **积累**：本轮用户确认的角色与术语在同一轮写入本地库，无需再问。
+8. **深度洞察（可选）**：用户要求或偏好里开启时，纪要交付后为每位已确认的参会人写一份只给用户看的 `深度洞察.md`：本场诉求、背后考虑、场内变化、跨会议变化，每条带原话依据并区分事实与推断。按 [深度洞察](references/insights.md) 执行。
 
 **短会议快速通道**：实质发言人不超过 2 位、只有一个文件、待判断术语不超过 2 个时，第 3–5 步合成一条消息：精简卡片 + 认领/术语问题 + 用编号代替姓名的纪要草稿。用户一回复就定稿交付。条件和边界见 [角色认领](references/roles.md#短会议快速通道)。
 
@@ -48,6 +49,7 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 7. **角色或术语改动只重建衍生文件**，不重新转写或上传音频。
 8. 只有转写工具实际接收了热词参数，才能说词库参与了识别；否则只说是转写后校对。
 9. 技能包里不放会议内容、姓名映射、录音或密钥。
+10. **深度洞察是私密的推断**：单独成文件，不进纪要正文、HTML、PNG 和长期库；只写工作立场，不评价性格、能力或私人情况。
 
 ## 完成与交付
 
@@ -65,6 +67,7 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 | 安装到各工具、云端沙箱、换电脑、设备 ID | [portability.md](references/portability.md) |
 | 移动录音、归档交付物 | [archive.md](references/archive.md) |
 | 用户用 Obsidian：归档进库、用库纠正识别错误 | [obsidian.md](references/obsidian.md) |
+| 深度洞察：每个人的诉求、考虑和变化 | [insights.md](references/insights.md) |
 | 找录音、转写 | [transcription.md](references/transcription.md)、[voice-memos-setup.md](references/voice-memos-setup.md) |
 | 没有 API Key、选本地识别、申请 Key | [transcription-options.md](references/transcription-options.md) |
 | 观点卡片、角色映射、跨轮状态 | [roles.md](references/roles.md) |

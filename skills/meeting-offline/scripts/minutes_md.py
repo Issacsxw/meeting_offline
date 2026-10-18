@@ -34,7 +34,9 @@ def target(name):
 def front(fields):
     lines = ['---']
     for key, value in fields:
-        if isinstance(value, list):
+        if isinstance(value, bool):
+            lines.append(f'{key}: {str(value).lower()}')
+        elif isinstance(value, list):
             lines.append(f'{key}:')
             lines.extend(f'  - {yaml(v)}' for v in value)
         elif value:

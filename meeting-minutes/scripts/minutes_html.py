@@ -7,6 +7,7 @@ import terms
 
 
 TEMPLATE = Path(__file__).resolve().parents[1] / 'assets/minutes.html'
+UNKNOWN_ROLE = '身份未确认'
 
 
 def render(document):
@@ -38,16 +39,19 @@ def png_for(html_path, out=None):
         return {'png': None, 'png_error': str(error)}
 
 
-def from_workspace(state, sid, section, corrections, protected=()):
-    """Use assistant-authored concise prose; never infer owners or summaries here."""
+def from_workspace(state, sid, section, corrections, protected=(), display_names=None):
+    """Use assistant-authored concise prose; never infer owners or summaries here.
+
+    display_names is the device preference mapping a confirmed name to how it reads in the minutes."""
     speakers = {s['key']: s for s in state['speakers'] if s['source_id'] == sid and not s.get('ignored_by_user')}
-    def display(key, short=False):
+    display_names = display_names or {}
+    def display(key):
         if not key:
             return '—'
-        name = speakers[key].get('role_name') or key
-        if short:
-            name = name.split('｜')[0]
-        return name.replace('用户本人', '我')
+        speaker = speakers[key]
+        # Workspaces from before display_name stored the role title after '｜' in role_name.
+        name = speaker.get('display_name') or (speaker.get('role_name') or key).split('｜')[0]
+        return display_names.get(name, name)
     def corrected(text):
         return terms.correct_derived(text, sid, corrections, protected)
     brief = section.get('reader', {})
@@ -60,7 +64,7 @@ def from_workspace(state, sid, section, corrections, protected=()):
         for speaker in speakers.values():
             prose = [p if isinstance(p, str) else p.get('text', '') for p in speaker.get('core_points', [])]
             if prose:
-                points.append({'title': display(speaker['key'], True), 'text': corrected('；'.join(prose))})
+                points.append({'title': display(speaker['key']), 'text': corrected('；'.join(prose))})
         for item in section.get('decisions', []):
             label = {'direction': '推进方向', 'proposal': '建议', 'decided': '已决定', 'open': '待定'}[item['status']]
             points.append({'title': label, 'text': corrected(item['text'])})
@@ -69,19 +73,19 @@ def from_workspace(state, sid, section, corrections, protected=()):
     for i, action in enumerate(section.get('actions', [])):
         override = overrides.get(i, {})
         todos.append({'task': corrected(override.get('task') or action['task']),
-            'owner': display(action.get('owner'), True),
+            'owner': display(action.get('owner')),
             'deadline': override.get('deadline') or action.get('deadline_text') or '—', 'done': False})
     people = []
     identities = set()
     unknown = 0
     for key, speaker in speakers.items():
-        if speaker.get('role_name') == '身份未确认':
+        if speaker.get('accepted_unknown') or speaker.get('role_name') == UNKNOWN_ROLE:
             unknown += 1
             continue
         identity = speaker.get('identity_group') or key
         if identity not in identities:
             identities.add(identity)
-            people.append(display(key, True))
+            people.append(display(key))
     participants = '、'.join(people)
     if unknown:
         participants = (participants + '等' if participants else '') + str(len(people) + unknown) + '人'

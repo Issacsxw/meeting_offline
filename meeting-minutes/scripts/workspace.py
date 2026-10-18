@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import memory
+import minutes_html
 import terms
 
 
@@ -219,10 +220,10 @@ def save_roles(root, mappings, expected):
         for key, profile in resolved:
             speaker = speakers[key]
             if profile is None:
-                speaker.update(role_name='身份未确认', identity_group=None, accepted_unknown=True)
+                speaker.update(role_name=minutes_html.UNKNOWN_ROLE, display_name=None, identity_group=None, accepted_unknown=True)
             else:
                 speaker.update(role_name=profile['name'] + ('｜' + profile['role_title'] if profile.get('role_title') else ''),
-                               identity_group=profile['id'], accepted_unknown=False)
+                               display_name=profile['name'], identity_group=profile['id'], accepted_unknown=False)
             speaker['role_confirmed'] = True
         return commit(root, state, {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'})
 
@@ -386,14 +387,28 @@ def public_state(root):
         'exports': read(root / 'exports/latest.json') if (root / 'exports/latest.json').exists() else None}
 
 
+def display_names():
+    """Optional preferences.meeting_minutes.display_names, e.g. {"用户本人": "我"}; empty by default."""
+    path = device_context.paths()['preferences']
+    if not path.exists():
+        return {}
+    preferences = read(path)
+    device_context.require_device(preferences.get('device_id'), path)
+    names = preferences.get('meeting_minutes', {}).get('display_names', {})
+    if not isinstance(names, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not v.strip() for k, v in names.items()):
+        raise ValueError('preferences 中的 display_names 必须是“已确认称呼 → 纪要显示名”的文本映射。')
+    return names
+
+
 def export(root):
-    import minutes_html
     root = Path(root); state = read(root / 'state.json')
     assert_workspace(root, state)
     analysis = validate_analysis(root, read(root / 'analysis.json'))
     corrections = read(root / 'corrections.json')
     protected = sorted(protected_forms(state, corrections))
+    shown_names = display_names()
     signature = digest({'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
+                        'display_names': shown_names,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
                         'sources': [(s['source_id'], s['transcript_sha256']) for s in state['sources']]})[:16]
     directory = root / 'exports' / signature; directory.mkdir(parents=True, exist_ok=True)
@@ -465,7 +480,7 @@ def export(root):
                      'semantic_review': 'pending', 'version': signature})
         files['structured'] = str(path)
         if ready and structured:
-            document = minutes_html.from_workspace(state, sid, structured, corrections, protected)
+            document = minutes_html.from_workspace(state, sid, structured, corrections, protected, shown_names)
             path = directory / (sid + '-纪要.html')
             rendered = minutes_html.render(document)
             unchanged = path.exists() and path.read_text(encoding='utf-8') == rendered

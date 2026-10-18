@@ -1,6 +1,6 @@
 {
   "format": "meeting-offline-portable-v1",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "device_scoped": true,
   "contains_personal_data": false,
   "files": {

@@ -78,7 +78,8 @@ def minutes(document, *, meeting_date=None, links=None, audio=None):
     if document['points']:
         lines += ['## 核心要点', '']
         for n, point in enumerate(document['points'], 1):
-            lines += [f'### {n}. {escape(point["title"])}', '', escape(point['text']), '']
+            tag = {'decided': '已决定', 'direction': '推进方向', 'proposal': '建议', 'open': '讨论中'}.get(point.get('status'))
+            lines += [f'### {n}. {escape(point["title"])}' + (f'　`{tag}`' if tag else ''), '', escape(point['text']), '']
     lines += ['## 主要 Todo', '']
     if document['todos']:
         for todo in document['todos']:

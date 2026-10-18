@@ -68,7 +68,7 @@ class ObsidianTests(unittest.TestCase):
             'meeting_date': '2026-10-16',
             'actions': [{'task': '写完背联上线方案', 'owner': 'm-A', 'owner_basis': 'self_commitment', 'evidence': [1]}],
             'reader': {'topic': '背联上线周会', 'summary': '确定背联上线节奏。', 'summary_evidence': [0],
-                       'points': [{'title': '上线节奏', 'text': '本周定下背联上线节奏，打样仍在等待。', 'evidence': [0, 2]}],
+                       'points': [{'title': '上线节奏', 'text': '本周定下背联上线节奏，打样仍在等待。', 'evidence': [0, 2], 'status': 'direction'}],
                        'todos': []}}}}, 1)
         return root
 

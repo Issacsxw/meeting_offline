@@ -336,6 +336,8 @@ def validate_analysis(root, analysis):
                 if not isinstance(point, dict) or any(not isinstance(point.get(k), str) or not point[k].strip() for k in ('title', 'text')):
                     raise ValueError(f'{where} requires title and text.')
                 check_refs(point.get('evidence'), where, 'valid source evidence')
+                if 'status' in point and point['status'] not in minutes_html.STATUS:
+                    raise ValueError(f'{where}.status must be decided, direction, proposal or open.')
                 attribution = point.get('attribution', [])
                 if not isinstance(attribution, list) or any(k not in speakers or speakers[k]['source_id'] != source_id for k in attribution):
                     raise ValueError(f'{where}.attribution must reference speakers of this source.')
@@ -568,11 +570,16 @@ def export(root):
 
 def publish(root, source_ids=None, png_overrides=None):
     """Record the checked HTML/PNG (and Markdown copies) of the latest export for archive_meeting.py."""
+    import audit
     root = Path(root)
     with locked(root):
         state = read(root / 'state.json'); latest = read(root / 'exports/latest.json')
         if latest['revision'] != state['revision']:
             raise ValueError('导出不是最新版本；请先运行 export。')
+        if not audit.is_checked(root):
+            open_ = audit.report(root)['unresolved']
+            raise ValueError(f'纪要还没核对完：有 {open_} 处内容和原话对不上或没登记处理结果。'
+                             '先运行 workspace.py audit，改正文或登记确认后再发布。')
         png_overrides = png_overrides or {}
         targets = source_ids or [sid for sid, f in latest['files'].items() if f.get('html')]
         if not targets:
@@ -616,6 +623,8 @@ def main():
     c = sub.add_parser('candidates'); c.add_argument('--workspace', required=True); c.add_argument('--file', required=True); c.add_argument('--revision', required=True, type=int)
     ct = sub.add_parser('confirm-terms', help='一次应用用户在对话里确认的术语修正'); ct.add_argument('--workspace', required=True); ct.add_argument('--file', required=True); ct.add_argument('--revision', required=True, type=int)
     pub = sub.add_parser('publish'); pub.add_argument('--workspace', required=True); pub.add_argument('--source', action='append'); pub.add_argument('--png', action='append', help='SID=PATH，浏览器内手动导出的 PNG')
+    au = sub.add_parser('audit', help='核对纪要内容和引用原话是否一致'); au.add_argument('--workspace', required=True)
+    au.add_argument('--resolve', help='登记处理结果的 JSON：{问题 id: {resolution, note}}'); au.add_argument('--revision', type=int)
     h = sub.add_parser('hotwords'); h.add_argument('--workspace', required=True); h.add_argument('--term', action='append', required=True); h.add_argument('--out', required=True); h.add_argument('--weight', type=int, default=2)
     args = parser.parse_args()
     try:
@@ -630,6 +639,14 @@ def main():
             result = term_review.confirm_batch(args.workspace, read(args.file), args.revision)
         elif args.command == 'publish': result = publish(args.workspace, args.source, {k: str(v) for k, v in pairs(args.png).items()})
         elif args.command == 'hotwords': result = hotwords(args.workspace, args.term, args.out, args.weight)
+        elif args.command == 'audit':
+            import audit
+            if args.resolve:
+                if args.revision is None:
+                    parser.error('--resolve 需要 --revision。')
+                result = audit.resolve(args.workspace, read(args.resolve), args.revision)
+            else:
+                result = audit.report(args.workspace)
         else: result = export(Path(args.workspace))
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as exc:

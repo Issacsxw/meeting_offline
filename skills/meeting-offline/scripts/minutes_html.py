@@ -10,6 +10,8 @@ TEMPLATE = Path(__file__).resolve().parents[1] / 'assets/minutes.html'
 UNKNOWN_ROLE = '身份未确认'
 # Styles offered in the editor's 样式 menu; keys match data-theme in the template.
 THEMES = {'warm': '暖白陶土', 'business': '商务蓝', 'mono': '极简黑白', 'fresh': '清新绿', 'dark': '深色'}
+# How settled a point is; shown as a tag on the point in every layout.
+STATUS = {'decided': '已决定', 'direction': '推进方向', 'proposal': '建议', 'open': '讨论中'}
 # Layouts offered in the 版式 menu, combinable with any theme; keys match data-layout.
 LAYOUTS = {'classic': '经典', 'official': '公文', 'cards': '卡片', 'timeline': '时间轴', 'checklist': '极简清单'}
 
@@ -32,6 +34,8 @@ def render(document):
         for item in document[field]:
             if not isinstance(item, dict) or any(not isinstance(item.get(k), str) for k in required):
                 raise ValueError('Invalid ' + field + ' item.')
+            if field == 'points' and item.get('status') not in (None, '', *STATUS):
+                raise ValueError('要点状态只能是 ' + '、'.join(STATUS))
     # people carries confirmed names for the Markdown links; the shared page only shows display names.
     document = {k: v for k, v in document.items() if k != 'people'}
     payload = json.dumps(document, ensure_ascii=False).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
@@ -80,8 +84,8 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     brief = section.get('reader', {})
     points = []
     if brief.get('points'):
-        points = [{'title': corrected(p['title']),
-                   'text': corrected(p['text'])} for p in brief['points']]
+        points = [{'title': corrected(p['title']), 'text': corrected(p['text']),
+                   **({'status': p['status']} if p.get('status') else {})} for p in brief['points']]
     else:
         # A fallback preserves all authored viewpoints; brevity requires an authored reader section.
         for speaker in speakers.values():

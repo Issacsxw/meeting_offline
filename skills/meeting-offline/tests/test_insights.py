@@ -45,7 +45,7 @@ class InsightTests(unittest.TestCase):
         root = w.initialize(state, self.meetings / name, {'m': audio})
         w.set_analysis(root, {'sources': {'m': {'meeting_date': date, 'actions': [], 'reader': {
             'topic': topic, 'summary': '讨论首发定价。', 'summary_evidence': [0],
-            'points': [{'title': '定价', 'text': '围绕首发价讨论。', 'evidence': [0], 'attribution': [f'{name}-A']}], 'todos': []}}}}, 1)
+            'points': [{'title': '定价', 'text': '围绕首发价讨论。', 'evidence': [0], 'attribution': [f'{name}-A'], 'status': 'open'}], 'todos': []}}}}, 1)
         return root
 
     def document(self):

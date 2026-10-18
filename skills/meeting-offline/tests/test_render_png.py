@@ -93,7 +93,7 @@ class WorkspacePublishTests(unittest.TestCase):
         return {'sources': {'4': {'title': '测试会议', 'meeting_date': None,
             'actions': [{'task': '提供报价', 'owner': '4-A', 'owner_basis': 'self_commitment', 'evidence': [0]}],
             'reader': {'topic': '简明会议', 'summary': '概要。', 'summary_evidence': [0],
-                       'points': [{'title': '观点', 'text': '提供报价。', 'evidence': [0], 'attribution': ['4-A']}],
+                       'points': [{'title': '观点', 'text': '提供报价。', 'evidence': [0], 'attribution': ['4-A'], 'status': 'direction'}],
                        'todos': [{'action_index': 0, 'task': '交付报价单'}]}}}}
 
     def test_without_browser_export_succeeds_and_publish_accepts_manual_png(self):

@@ -13,7 +13,7 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 
 ## 流程
 
-1. **定来源并归档录音**：用户给出录音路径，或用语音备忘录 / `scripts/find_recordings.py`（iCloud 云盘、下载、桌面）列出最近录音让用户选定；选定后按 [归档](references/archive.md) 将原文件移动到 `archive/日期_主题/`；只列举时不移动。已有转写与工作区优先复用，避免重复上传计费。
+1. **定来源并归档录音**：开了[录音收件箱](references/inbox.md)时先运行 `scripts/inbox.py status`，已转写好的录音直接用它的工作区，不重新转写。否则用户给出录音路径，或用语音备忘录 / `scripts/find_recordings.py`（iCloud 云盘、下载、桌面）列出最近录音让用户选定；选定后按 [归档](references/archive.md) 将原文件移动到 `archive/日期_主题/`；只列举时不移动。已有转写与工作区优先复用，避免重复上传计费。
 2. **转写**：有阿里云 Key 时按 [转写流程](references/transcription.md) 用 Qwen；没有 Key 或用户不想上传时，按 [转写方案](references/transcription-options.md) 说明本地 FunASR、本地 Whisper 和申请 Key 的差别，由用户选择，安装本地引擎前先征得同意。同一段录音已有的转写结果直接复用；Apple 语音备忘录走只读 MCP（[配置](references/voice-memos-setup.md)）。
 3. **角色认领**：按 [角色认领](references/roles.md) 给每位说话人出观点卡片（核心观点 + 带时间戳的原话），一条消息收集映射；本地库有候选时预填并标“待确认”。
 4. **术语复核**：只对影响理解的词出选择卡片，规则见 [本地积累](references/memory.md)；需要回听或页面操作时用 [本地复核](references/local-review.md)。设置了 Obsidian 库时，先用库里的写法找出疑似识别错误，列成一份清单让用户一次确认（[Obsidian 库](references/obsidian.md)）。不影响理解的未确认词不阻塞纪要。
@@ -70,6 +70,7 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 | 深度洞察：每个人的诉求、考虑和变化 | [insights.md](references/insights.md) |
 | 找录音、转写、手机录音怎么给电脑 | [transcription.md](references/transcription.md)、[voice-memos-setup.md](references/voice-memos-setup.md)、[iphone-recording.md](references/iphone-recording.md) |
 | 没有 API Key、选本地识别、申请 Key | [transcription-options.md](references/transcription-options.md) |
+| 手机录完电脑自动转写、后台收件箱 | [inbox.md](references/inbox.md) |
 | 观点卡片、角色映射、跨轮状态 | [roles.md](references/roles.md) |
 | 本地角色库、术语复核与积累 | [memory.md](references/memory.md) |
 | 工作区、复核页面、analysis JSON、热词 | [local-review.md](references/local-review.md) |

@@ -170,6 +170,7 @@ python3 install.py        # Windows：py -3 install.py
 | 找最近的录音 | 帮我找一下最近的会议录音 |
 | 用语音备忘录 | 用语音备忘录里最新那条录音出纪要 |
 | 手机录的会 | 手机录的会怎么给你？ |
+| 手机录完自动转写 | 帮我开启录音收件箱 |
 | 不想上传录音 | 用本地识别整理这段录音 |
 | 改人名 | 1-B 其实是王五，重新出一版 |
 | 改错词 | “普罗”应该是“示例Pro” |
@@ -229,7 +230,7 @@ python3 install.py        # Windows：py -3 install.py
 <summary>支持哪些录音？</summary>
 <br>
 
-m4a、wav、mp4，手机和电脑自带的录音机、语音备忘录、会议软件的云录制都是这几种。没告诉它文件在哪时，它会在 iCloud 云盘、下载、桌面里找最近的录音给你选。用 iPhone 录的会，存进 iCloud 云盘的“会议录音”文件夹就能被找到，做法见 [用手机录会议](skills/meeting-offline/references/iphone-recording.md)，也可以做成一键快捷指令。只有文字稿、没有录音的情况暂不支持。
+m4a、wav、mp4，手机和电脑自带的录音机、语音备忘录、会议软件的云录制都是这几种。没告诉它文件在哪时，它会在 iCloud 云盘、下载、桌面里找最近的录音给你选。用 iPhone 录的会，存进 iCloud 云盘的“会议录音”文件夹就能被找到，做法见 [用手机录会议](skills/meeting-offline/references/iphone-recording.md)，也可以做成一键快捷指令。在 Mac 上还可以开启 [录音收件箱](skills/meeting-offline/references/inbox.md)：录音同步过来后在后台用本地识别转写好，弹通知提醒你回来确认，录音不上传。只有文字稿、没有录音的情况暂不支持。
 </details>
 
 <details>

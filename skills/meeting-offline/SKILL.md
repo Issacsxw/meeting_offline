@@ -15,16 +15,16 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 
 1. **定来源并归档录音**：开了[录音收件箱](references/inbox.md)时先运行 `scripts/inbox.py status`，已转写好的录音直接用它的工作区，不重新转写。否则用户给出录音路径，或用语音备忘录 / `scripts/find_recordings.py`（iCloud 云盘、下载、桌面）列出最近录音让用户选定；选定后按 [归档](references/archive.md) 将原文件移动到 `archive/日期_主题/`；只列举时不移动。已有转写与工作区优先复用，避免重复上传计费。
 2. **转写**：有阿里云 Key 时按 [转写流程](references/transcription.md) 用 Qwen；没有 Key 或用户不想上传时，按 [转写方案](references/transcription-options.md) 说明本地 FunASR、本地 Whisper 和申请 Key 的差别，由用户选择，安装本地引擎前先征得同意。同一段录音已有的转写结果直接复用；Apple 语音备忘录走只读 MCP（[配置](references/voice-memos-setup.md)）。
-3. **角色认领**：按 [角色认领](references/roles.md) 给每位说话人出观点卡片（核心观点 + 带时间戳的原话），一条消息收集映射；本地库有候选时预填并标“待确认”。
-4. **术语复核**：只对影响理解的词出选择卡片，规则见 [本地积累](references/memory.md)；需要回听或页面操作时用 [本地复核](references/local-review.md)。设置了 Obsidian 库时，先用库里的写法找出疑似识别错误，列成一份清单让用户一次确认（[Obsidian 库](references/obsidian.md)）。不影响理解的未确认词不阻塞纪要。
+3. **准备卡片**：按 [角色认领](references/roles.md) 给每位说话人写观点卡片（核心观点 + 带时间戳的原话），本地库有候选时预填并标“待确认”；只对影响理解的词准备术语卡片（[本地积累](references/memory.md)），设置了 Obsidian 库时加上库里写法的疑似识别错误（[Obsidian 库](references/obsidian.md)）。
+4. **在复核页面确认**：`scripts/review.py --workspace W --background --open` 打开本机复核页面，用户在一个页面里认人、回听、确认专有名词。对话里只发两三句说明和链接，等用户说确认好了，再用 `workspace.py show` 读取结果（[本地复核](references/local-review.md#打开复核页面)）。**不要把卡片贴进对话让用户打字回复**；只有云端沙箱、页面打不开或用户明确要求时才在对话里确认（[角色认领](references/roles.md#在对话里认领只在这些情况)）。不影响理解的未确认词不阻塞纪要。
 5. **写纪要**：角色确定（或用户明确接受部分未知）后直接写，不再问“是否开始”。内容要求见下文，写入与生成见 [HTML 与 PNG](references/publish-html.md)。
 6. **核对、交付与归档**：脚本同时生成 HTML、PNG 和 Markdown（`会议纪要.md`、`逐字稿.md`）。先 `workspace.py audit` 把正文和引用原话逐条对照，改正或请用户确认每一处对不上的地方（[内容核对](references/publish-html.md#内容核对发布前必做)），打开 PNG 检查后 `workspace.py publish`，再归档到会议文件夹（设置了 Obsidian 库时就在库里）。
 7. **积累**：本轮用户确认的角色与术语在同一轮写入本地库，无需再问。
 8. **深度洞察（可选）**：用户要求或偏好里开启时，纪要交付后为每位已确认的参会人写一份只给用户看的 `深度洞察.md`：本场诉求、背后考虑、场内变化、跨会议变化，每条带原话依据并区分事实与推断。按 [深度洞察](references/insights.md) 执行。
 
-**短会议快速通道**：实质发言人不超过 2 位、只有一个文件、待判断术语不超过 2 个时，第 3–5 步合成一条消息：精简卡片 + 认领/术语问题 + 用编号代替姓名的纪要草稿。用户一回复就定稿交付。条件和边界见 [角色认领](references/roles.md#短会议快速通道)。
+**短会议快速通道**：实质发言人不超过 2 位、只有一个文件、待判断术语不超过 2 个时，发页面链接的同一条消息里附上用编号代替姓名的纪要草稿，用户在页面确认后直接定稿交付。条件和边界见 [角色认领](references/roles.md#短会议快速通道)。
 
-用户日常只需指定会议，并回答真正有疑问的角色或术语；重试、排版、导出由助手完成。
+用户日常只需指定会议，并在复核页面里确认真正有疑问的角色或术语；重试、排版、导出由助手完成。
 
 ## 纪要正文
 
@@ -73,6 +73,6 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 | 手机录完电脑自动转写、后台收件箱 | [inbox.md](references/inbox.md) |
 | 观点卡片、角色映射、跨轮状态 | [roles.md](references/roles.md) |
 | 本地角色库、术语复核与积累 | [memory.md](references/memory.md) |
-| 工作区、复核页面、analysis JSON、热词 | [local-review.md](references/local-review.md) |
+| 复核页面（认人、确认术语）、工作区、analysis JSON、热词 | [local-review.md](references/local-review.md) |
 | 写 reader 正文、生成 HTML/PNG、改稿出新图 | [publish-html.md](references/publish-html.md) |
 | 视觉模板与 Figma 母版 | [workflow.md](references/workflow.md) |

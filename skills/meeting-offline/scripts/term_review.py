@@ -90,7 +90,7 @@ def cards(root, state=None):
             'question': candidate.get('question', ''), 'scope': candidate.get('scope', ''),
             'category': candidate.get('category', '专有名词'),
             'options': candidate.get('options') or [{'text': f, 'basis': '原转写中出现，尚未确认'} for f in candidate['forms']],
-            'variants': variants, 'review': state.get('term_reviews', {}).get(cid)})
+            'suggested': candidate.get('suggested'), 'variants': variants, 'review': state.get('term_reviews', {}).get(cid)})
     return result
 
 
@@ -102,7 +102,7 @@ def save(root, payload, expected):
         return w.commit(root, state, apply_choice(root, state, payload))
 
 
-def confirm_batch(root, choices, expected):
+def confirm_batch(root, choices, expected, via='batch'):
     """Apply a list of choices the user approved in one reply ("都对", "第2个不改") as a single revision.
 
     Each choice is {candidate_id, decision, canonical?, scope?, segments?}; segments is "all" (default)
@@ -122,7 +122,7 @@ def confirm_batch(root, choices, expected):
                     payload = expand(root, state, choice)
                     if payload is None:  # an earlier choice in this batch already corrected these words
                         skipped.append(choice['candidate_id']); continue
-                    changes.append(apply_choice(root, state, payload, via='batch'))
+                    changes.append(apply_choice(root, state, payload, via=via))
                 except ValueError as error:
                     raise ValueError(f'第 {n + 1} 条（{choice.get("candidate_id") if isinstance(choice, dict) else choice}）：{error}') from None
         except BaseException:
@@ -170,6 +170,7 @@ def expand(root, state, choice):
 
 
 CONFIRMATIONS = {'card': '用户在本地术语选择卡片查看原文后明确确认标准写法及勾选范围。',
+                 'page': '用户在本地复核页面查看原文后，点“全部按库里的写法改”明确确认。',
                  'batch': '用户在对话中查看批量修正清单（含原文片段）后明确确认。'}
 
 

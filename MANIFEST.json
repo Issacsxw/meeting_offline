@@ -4,7 +4,7 @@
   "device_scoped": true,
   "contains_personal_data": false,
   "files": {
-    "skills/meeting-offline/SKILL.md": "c37f17f4a16d8042d11b130edba44355e10dbfb13ec4e6a47edcd2fe0f987ec2",
+    "skills/meeting-offline/SKILL.md": "f28457f709ddde075fe091c670d0ca3392edafe80943b89a6425760cbb1dcf19",
     "skills/meeting-offline/agents/openai.yaml": "e7dc5d5e0ddefaf69d3e750cd7858ae7ef4eb42f06e695d0af5e889f917262ad",
     "skills/meeting-offline/assets/minutes.html": "9f7055f0f31724c81f076621f07531bc7265b5b92b9d9d143aa058533f199b98",
     "skills/meeting-offline/assets/review.html": "e7fdcd3ac29a9be467147691051ee8a29afee2089c4c9a6218c42140d1f8ff44",
@@ -14,7 +14,8 @@
     "skills/meeting-offline/references/portability.md": "4602012cd6b02bb882bbfc4dc390de04ec380e7f34f1de205962442f0a242b58",
     "skills/meeting-offline/references/publish-html.md": "500ab26172f1cf3cd9bcdc5b4f50d425c6e9ce7b88f9390e39dff2ed89e05765",
     "skills/meeting-offline/references/roles.md": "cd9eec9e155978659b0367bfe9a0bab21965e62de12091f551777c7029b123c5",
-    "skills/meeting-offline/references/transcription.md": "8f8fc501f7d842450a17eceed0d34088bd0f27e7ebcb08a0f81596b10579e14b",
+    "skills/meeting-offline/references/transcription-options.md": "08133c217f27beb76b19bc9531c76e985af7da6725539627ada7b59f502b4e95",
+    "skills/meeting-offline/references/transcription.md": "df6477149579213e881c16ab1a477311aeb36ff55e8879ba32c435ef5335a2ae",
     "skills/meeting-offline/references/voice-memos-setup.md": "392588626b3b4d67710f56f2afb4c74270486c667d4af00a4af447590b17ec10",
     "skills/meeting-offline/references/workflow.md": "016eaad1a4c1f80df29b8d0ec686499dbce3c3594c5eca22e55260d68d1e2803",
     "skills/meeting-offline/scripts/archive_meeting.py": "0ebeb832dc98a14edde6d6d4ad0d6e30144ef6999b6dad3b19ac40fb8162e48d",
@@ -31,6 +32,7 @@
     "skills/meeting-offline/scripts/setup_keychain.sh": "7942cb04f261055ccd3e9027755a9e967ea01c86d24fcf41adbb7732594c5f22",
     "skills/meeting-offline/scripts/term_review.py": "f6e57be7a25233fa813ac21d65f55d98d542dd9daad4a8c7e9340b4417b8a598",
     "skills/meeting-offline/scripts/terms.py": "144e97d43aae45c587c09739bb2eb2b7c719bff689686792e175d6e53c4d96c5",
+    "skills/meeting-offline/scripts/transcribe_local.py": "e45a83da836546be980faaa7af9e9d7594228d953e54055cb5072cdb03ec2c44",
     "skills/meeting-offline/scripts/transcribe_qwen.py": "18220b80b10de330ca1f6cefac9e159a8b265d75e8571f371d57a01bf6a54f97",
     "skills/meeting-offline/scripts/workspace.py": "9cc6d381e3ecef017316d1c57af0920a7da42e3dd4f6992c6347055409329e81",
     "skills/meeting-offline/tests/test_archive_meeting.py": "f4b498d40d270f95420386fc005920c07c61125ce302c59b9ba3f5dffc9b30e1",
@@ -42,6 +44,7 @@
     "skills/meeting-offline/tests/test_render_png.py": "b6c349341aeda8f0ae7f6cdafce53612f02398f33f3626f487751b5144daacc5",
     "skills/meeting-offline/tests/test_term_review.py": "f99790782546830e68fe83cfdead2b408de4b6c1a2ef30953fb7c53c258d6318",
     "skills/meeting-offline/tests/test_terms.py": "0e14d1e837e33f5be3547a0ba5a8b67c1e894ab7875332617238cfb1824d19eb",
+    "skills/meeting-offline/tests/test_transcribe_local.py": "4f125724c1e002c1711bec9f4bbf3c62cca97581d93c4d809dd7d96cedde0c7b",
     "skills/meeting-offline/tests/test_transcribe_qwen.py": "92da429bcd39cebcd6678a28b02e56a9fe671f84abd1d241a2812df83f0240c3",
     "skills/meeting-offline/tests/test_workspace.py": "bbf1f3c47f9b9b41c330eee7b967e22f35877164615bc52403d3bd6a0a35a1d9"
   }

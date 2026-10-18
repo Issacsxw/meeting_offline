@@ -1,6 +1,6 @@
 # 录音转写
 
-先运行 `scripts/device_context.py init`。输入必须是会议录音；只有文字稿、没有录音时，告诉用户本技能需要录音，不要自行整理文字稿。同一段录音已有的转写结果（本机任务缓存或 `--import-result` 登记的结果）直接复用，不因角色或术语改动重新上传。没有转写时使用本包的 `scripts/transcribe_qwen.py`；每次调用处理一个录音，用户明确选择多条时逐条执行，不自行扩大范围。
+先运行 `scripts/device_context.py init`。输入必须是会议录音；只有文字稿、没有录音时，告诉用户本技能需要录音，不要自行整理文字稿。同一段录音已有的转写结果（本机任务缓存或 `--import-result` 登记的结果）直接复用，不因角色或术语改动重新上传。没有转写时，有阿里云 Key 用本包的 `scripts/transcribe_qwen.py`（下文）；没有 Key 时按 [转写方案](transcription-options.md) 让用户选择本地识别（`scripts/transcribe_local.py`）或先申请 Key。Qwen 转写每次调用处理一个录音，用户明确选择多条时逐条执行，不自行扩大范围。
 
 ## 找录音
 

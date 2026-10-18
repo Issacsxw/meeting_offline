@@ -1,82 +1,214 @@
-# meeting_offline · 会议纪要技能
+<p align="center">
+  <img src="docs/banner.png" alt="meeting_offline：把会议录音变成能推进工作的纪要" width="100%">
+</p>
 
-把会议录音或转写整理成一份简洁的会议纪要：**主题、时间、参会人、核心要点、主要 Todo**。交付可直接编辑的 HTML 和一张 PNG 图片。说话人身份和关键术语由你确认，确认过的角色与术语会在本机持续积累，下次开会自动给出候选。
+<p align="center">
+  <a href="https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest"><img src="https://img.shields.io/github/v/release/sunxuwang001-sketch/meeting_offline?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=d97757" alt="最新版本"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-30302c" alt="MIT 许可证"></a>
+  <img src="https://img.shields.io/badge/Python-3.9%2B-30302c" alt="Python 3.9+">
+  <img src="https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-%E4%BB%85%E6%A0%87%E5%87%86%E5%BA%93-30302c" alt="只用 Python 标准库">
+</p>
 
-这是一个 AI 助手技能（SKILL.md 格式），可在 Codex、Claude Code、WorkBuddy、CodeBuddy、ChatGPT 和 Claude.ai 中使用。
+<p align="center">
+  <a href="#快速开始"><b>快速开始</b></a> ·
+  <a href="https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest"><b>下载</b></a> ·
+  <a href="#你可以这样说">怎么用</a> ·
+  <a href="#隐私与数据">隐私</a> ·
+  <a href="#常见问题">常见问题</a>
+</p>
 
-<p align="center"><img src="docs/example.png" width="560" alt="会议纪要示例：主题、时间、参会人、会议概要、核心要点与 Todo 表格"></p>
+---
 
-<p align="center"><sub>示例图，内容为虚构</sub></p>
+开完会最费时间的往往不是开会本身，而是之后的整理：谁说了什么、最后定了什么、哪件事由谁在什么时候之前完成。
 
-## 它做什么
+**meeting_offline** 是一个装进 AI 助手里的技能。把录音或转写交给它，告诉它谁是谁，就能拿到一份简洁的会议纪要：**主题、时间、参会人、核心要点、主要 Todo**，同时给你一份可直接修改的网页和一张可以发到群里的图片。
 
-1. **录音归档**：把选定的录音移动到 `会议纪要/日期_主题/` 文件夹，纪要做好后放在同一处。
-2. **转写**（只有音频时）：内置阿里云 Qwen 转写脚本；也支持直接导入已有转写和 Apple 语音备忘录（只读）。
-3. **说话人认领**：每位说话人给一张卡片，列出核心观点和带时间戳的原话，由你填写他是谁。身份只由你确认，不靠猜测。
-4. **术语复核**：对影响理解的人名、产品名，给出原文和候选写法让你选；只改你勾选的段落，不会机械地全局替换。
-5. **写纪要**：综合整场讨论，分清决定、方向和建议；负责人和期限只写有依据的内容，不虚构。
-6. **交付**：生成可编辑 HTML，并用本机浏览器在后台直接导出 PNG。之后你在 HTML 里改完，可以在页面里点“导出图片”，也可以让助手重新出图。
-7. **积累**：你确认过的角色和术语存进本机库，下次自动预填候选。
+## 为什么用它
 
-短会议（不超过 2 位发言人）会把认领和纪要草稿合并成一条消息，你回复一次就能定稿。
+- **结论清楚，不编造**：区分“已决定”“方向”和“建议”；负责人和期限只写会上真正说过的，不确定就留“—”。
+- **人和词由你确认**：每位说话人都配上观点和原话，你认一下就行；人名、产品名有疑问时给你候选，只改你勾选的地方。
+- **越用越省事**：确认过的角色和术语保存在你电脑上，下次开会自动给出候选，不用每次重新填。
+- **拿来就能用**：HTML 点击文字就能改，改完一键导出图片；图片按内容自动排版，适合直接分享。
+- **在你常用的 AI 工具里用**：Codex、Claude Code、WorkBuddy、CodeBuddy、ChatGPT、Claude.ai 都可以。
 
-## 安装
+## 三步上手
 
-到 [Releases](https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest) 下载安装包：
+<p align="center"><img src="docs/workflow.png" alt="三步：交给它录音或转写，告诉它谁是谁，拿到纪要" width="100%"></p>
 
-| 安装包 | 用在哪里 |
+短会议（不超过 2 位发言人）更快：认领卡片和纪要草稿会在同一条消息里给你，回复一次就能定稿。
+
+## 效果一览
+
+<table>
+  <tr>
+    <th width="42%">纪要图片（PNG）</th>
+    <th>可编辑网页（HTML）</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/example.png" alt="会议纪要图片示例"></td>
+    <td valign="top">
+      <img src="docs/editor.png" alt="纪要编辑器：点击文字直接修改">
+      <br><br>
+      <ul>
+        <li>点击任意文字直接修改，可增删要点和 Todo、勾选完成</li>
+        <li>“会议信息”里补填时间和参会人</li>
+        <li>“保存 HTML”保留修改，“导出图片”生成新的 PNG</li>
+        <li>完全离线，不加载任何外部资源</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>示例中的会议、人名和数据均为虚构</sub></p>
+
+## 快速开始
+
+### 1. 下载
+
+到 [Releases](https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest) 下载对应的安装包：
+
+| 你用的工具 | 下载 |
 | --- | --- |
-| `meeting_offline-<版本>-local.zip` | Codex、Claude Code、WorkBuddy、CodeBuddy（装在电脑上的工具） |
-| `meeting_offline-<版本>-upload.zip` | 直接上传到 ChatGPT、Claude.ai，或在 WorkBuddy 里导入 |
+| Codex、Claude Code、WorkBuddy、CodeBuddy（装在电脑上的） | `meeting_offline-<版本>-local.zip` |
+| ChatGPT、Claude.ai（网页 / App） | `meeting_offline-<版本>-upload.zip` |
 
-### 本机工具：Codex / Claude Code / WorkBuddy / CodeBuddy
+### 2. 安装
 
-解压 `local.zip`，在解压出的目录里运行：
+**电脑上的工具**：解压 `local.zip`，在解压出的文件夹里运行
 
 ```bash
-python3 install.py          # Windows: py -3 install.py
+python3 install.py        # Windows：py -3 install.py
 ```
 
-也可以直接 `git clone https://github.com/sunxuwang001-sketch/meeting_offline.git`，在仓库目录里运行同样的命令。
+安装器会找到你电脑上装了哪些 AI 工具，并全部装好。只想装某一个时加 `--target codex`、`claude`、`workbuddy` 或 `codebuddy`。
 
-安装器会自动检测本机装了哪些工具，并全部装好；只装其中一个时加 `--target`：
+> 💡 **不想碰命令行？** 直接把 `local.zip` 发给你的 Codex、Claude Code 或 WorkBuddy，对它说：“请解压这个压缩包，运行里面的 install.py 安装技能。”
 
-| 工具 | 命令 | 安装位置 | 调用 |
-| --- | --- | --- | --- |
-| Codex | `--target codex` | `~/.agents/skills/` | `$meeting-offline` |
-| Claude Code | `--target claude` | `~/.claude/skills/` | `/meeting-offline` |
-| WorkBuddy | `--target workbuddy` | `~/.workbuddy/skills/` | 新开会话直接描述任务 |
-| CodeBuddy / WorkBuddy 企业版 | `--target codebuddy` | `~/.codebuddy/skills/` | 新开会话直接描述任务 |
+**ChatGPT / Claude.ai**：在技能设置里上传 `upload.zip`。
 
-其他工具用 `--skills-dir <该工具的 skills 目录>`。在任何工具里也都可以直接说“整理这份会议录音”。
-
-### 云端：ChatGPT / Claude.ai
-
-在工具里上传 `meeting_offline-<版本>-upload.zip`（从 Releases 下载，或在仓库里运行 `python3 build_package.py --out dist` 自己打包）：
-
-- ChatGPT：在技能设置里上传（需要支持技能的工作区套餐，个人版目前可能没有这个功能）。
+- ChatGPT：需要支持技能的工作区套餐（Business、Enterprise、Edu）。
 - Claude.ai：设置 → 功能 → 技能 → 上传。
-- WorkBuddy 也可以在应用内导入同一个上传包。
+- WorkBuddy 也可以在应用内“专家 → 技能 → 添加技能 → 导入技能”导入这个包。
 
-云端运行在临时沙箱里，接触不到你的电脑：需要上传录音或转写稿，结束时把 `memory.json` 一起下载，下次上传后可以继续积累。
+### 3. 开始用
+
+重新打开 AI 工具，直接说“整理这份会议录音”就行。也可以点名调用：Codex 输入 `$meeting-offline`，Claude Code 输入 `/meeting-offline`。
+
+需要把录音转成文字时，还要配置一次阿里云 DashScope（百炼）的 API Key，在阿里云百炼控制台创建即可：macOS 运行已安装技能里的 `scripts/setup_keychain.sh`，把密钥存进钥匙串；其他系统设置环境变量 `DASHSCOPE_API_KEY`。已经有文字稿的话可以跳过这一步。
+
+## 你可以这样说
+
+| 场景 | 对 AI 说 |
+| --- | --- |
+| 整理一段录音 | 整理这份会议录音：`~/Downloads/周会.m4a` |
+| 用语音备忘录 | 用语音备忘录里最新那条录音出纪要 |
+| 已有文字稿 | 这是会议软件导出的文字稿，帮我整理成纪要 |
+| 认错了人 | 1-B 其实是王五，重新出一版 |
+| 词识别错了 | “普罗”应该是“示例Pro”，只改第二段 |
+| 自己改过 HTML | 我改了这份 HTML，帮我重新生成图片 |
+| 继续上次的会 | 继续整理昨天那场周会 |
+
+## 工作原理
+
+```mermaid
+flowchart LR
+    A[录音或转写] --> B[归档录音]
+    B --> C[转写<br/>仅在需要时]
+    C --> D[说话人认领<br/>由你确认]
+    D --> E[术语复核<br/>只改勾选处]
+    E --> F[撰写纪要]
+    F --> G[HTML + PNG]
+    G --> H[归档到会议文件夹]
+    D -. 确认的角色 .-> M[(本机角色库<br/>术语库)]
+    E -. 确认的术语 .-> M
+    M -. 下次的候选 .-> D
+```
+
+- 录音会移动到 `~/Documents/会议纪要/<设备ID>/日期_主题/`，做好的 HTML 和 PNG 放在同一个文件夹里。
+- 纪要由你的 AI 助手阅读转写后撰写；脚本只负责转写、校验、排版和归档，不会自己编写总结。
+- 修改角色或术语只会重新生成文件，不会重新上传录音。
+
+## 隐私与数据
+
+| 内容 | 去哪里 |
+| --- | --- |
+| 录音文件 | 留在你电脑上；只有你同意转写时，才会上传到阿里云 DashScope |
+| 转写文字 | 由你使用的 AI 工具阅读，会发送给该工具的模型服务，和你平时在其中聊天一样 |
+| 角色库、术语库、会议工作区 | 只存在本机 `~/.meeting-offline/`，不随技能分发，也不会上传 |
+| HTML 和 PNG | 在本机生成，不依赖任何在线服务 |
+| API Key | 存在系统钥匙串或环境变量里，不写进任何文件 |
+
+- 不同电脑各自从空库开始，即使同步了用户目录也不会混用。
+- 上传给阿里云的录音按其规则处理：5 分钟以内随请求直接发送；更长的录音存入 DashScope 临时存储，最长保留 48 小时。
+- 想清空积累的数据，删除 `~/.meeting-offline/` 文件夹即可。
+
+## 常见问题
+
+<details>
+<summary><b>要付费吗？</b></summary>
+
+技能本身免费，采用 MIT 许可证。你需要自己的 AI 工具账号；用到录音转写时，阿里云 DashScope 按量计费。已有文字稿就不需要转写。
+</details>
+
+<details>
+<summary><b>没有 API Key 能用吗？</b></summary>
+
+能。把会议软件导出的文字稿、语音备忘录自带的转写或任何带说话人的文字记录交给它即可。只有需要把录音转成文字时才用到 API Key。
+</details>
+
+<details>
+<summary><b>它会不会把人认错？</b></summary>
+
+它不会自己认人。每位说话人都会列出观点和原话，由你告诉它是谁。以前确认过的人会作为候选出现，但仍要你确认。认错了随时说“1-B 其实是……”，纪要会重新生成。
+</details>
+
+<details>
+<summary><b>负责人和期限是怎么来的？</b></summary>
+
+只有会上有人明确认领或被指派的事项才写负责人，期限也只写有人说过的。提出建议的人不会被自动当成负责人。会议日期不确定时，“下周一”这样的说法会保留原样，不会换算成具体日期。
+</details>
+
+<details>
+<summary><b>Windows 和 Linux 能用吗？</b></summary>
+
+能安装和使用。读取 Apple 语音备忘录只支持 macOS，其他系统直接提供录音文件即可。目前主要在 macOS 上实际使用过；Windows 和 Linux 已通过自动化测试，还没有完整的实机验证，遇到问题欢迎提 Issue。
+</details>
+
+<details>
+<summary><b>没有 Chrome 怎么生成图片？</b></summary>
+
+生成 PNG 需要本机有 Chrome、Edge 或 Chromium 中的任意一个。没有的话，HTML 照常交付，在网页里点“导出图片”就能得到同样的 PNG。
+</details>
+
+<details>
+<summary><b>换了电脑怎么办？</b></summary>
+
+新电脑会从空库开始积累，这是有意的设计，避免不同电脑的数据混在一起。同一台电脑上的不同 AI 工具共用一份数据。
+</details>
+
+<details>
+<summary><b>录音能有多长？</b></summary>
+
+转写支持最长 12 小时、1 GB 以内的录音。超过 2 小时且需要区分说话人时，会先提醒你转写服务的建议，再由你确认是否继续。
+</details>
+
+<details>
+<summary><b>从旧版 meeting-minutes 升级会丢数据吗？</b></summary>
+
+不会。直接运行新版 `install.py`，旧技能会移到 `skill-backups/`，原有的角色、术语和转写缓存继续可用。
+</details>
 
 ## 环境要求
 
-- Python 3.9+，只用标准库，不需要安装额外的 Python 包。
-- Chrome、Edge 或 Chromium 之一，用于直接生成 PNG；没有时 HTML 照常可用，在页面里点“导出图片”即可。
-- 需要转写时：阿里云 DashScope API Key 和 curl。macOS 可运行 `meeting-offline/scripts/setup_keychain.sh` 把密钥存进钥匙串，其他平台设置环境变量 `DASHSCOPE_API_KEY`。
-- 读取 Apple 语音备忘录（可选，仅 macOS）：见 [voice-memos-setup.md](meeting-offline/references/voice-memos-setup.md)。
+- Python 3.9 或更新版本，只用标准库，不需要另外安装 Python 包
+- Chrome、Edge 或 Chromium 之一，用于直接生成 PNG（可选）
+- 需要转写时：阿里云 DashScope API Key 和 curl
+- 读取 Apple 语音备忘录（可选，仅 macOS）：见 [配置说明](meeting-offline/references/voice-memos-setup.md)
 
-已在 macOS 上实际使用；Windows/Linux 有离线测试，尚未做实机端到端验证。
+<details>
+<summary><b>给开发者</b></summary>
 
-## 数据与隐私
-
-- **只在本机**：角色库、术语库、会议工作区和转写缓存存放在 `~/.meeting-offline/devices/<设备ID>/`，归档在 `~/Documents/会议纪要/<设备ID>/`。同一台电脑上的各个 AI 工具共用这一份数据。
-- **按设备隔离**：不同电脑各自从空库开始，即使同步了用户目录也不会混用。设备 ID 只保存系统标识的哈希摘要。
-- **云端上传需授权**：只有你同意转写某段录音时，才会把它上传到阿里云；角色和术语的修改不会重新上传。整理纪要和生成 PNG 都在本机完成。
-- **仓库不含任何个人数据**：没有会议内容、录音、人物档案或密钥。
-
-## 仓库结构
+### 仓库结构
 
 ```
 meeting-offline/          技能本体
@@ -87,27 +219,33 @@ meeting-offline/          技能本体
   tests/                  单元测试
 install.py                本机安装器
 build_package.py          更新 MANIFEST 校验值并打包
-CHANGELOG.md              更新记录（也用作 Release 说明）
-.github/workflows/        推送版本标签后自动发布 Release
 MANIFEST.json             技能文件校验值，安装器据此校验
-安装说明.txt              随安装包分发的简要说明
+CHANGELOG.md              更新记录（也用作 Release 说明）
+.github/workflows/        版本号更新合并到 main 后自动发布 Release
+docs/                     README 配图
 ```
 
-## 开发
+### 测试与打包
 
 ```bash
 cd meeting-offline
-python3 -m unittest discover -s tests       # 运行测试（本机有 Chromium 时会包含 PNG 渲染测试）
+python3 -m unittest discover -s tests      # 本机有 Chromium 时会包含 PNG 渲染测试
 cd ..
-python3 build_package.py --version X.Y.Z --out dist   # 改完技能文件后更新校验值并打包
+python3 build_package.py --out dist        # 生成 local.zip 和 upload.zip
 ```
 
-`MANIFEST.json` 记录技能文件的校验值；改动 `meeting-offline/` 下的任何文件后，都要运行 `build_package.py` 更新它，否则安装器会拒绝安装。
+`MANIFEST.json` 记录技能文件的校验值。改动 `meeting-offline/` 下的任何文件后，都要运行 `build_package.py` 更新它，否则安装器会拒绝安装。
 
-发布新版本：在 `CHANGELOG.md` 加上 `## X.Y.Z` 一节，用 `build_package.py --version X.Y.Z` 更新版本号并提交，合并到 `main`。GitHub Actions 发现这个版本还没有 Release，就会运行测试、打包，创建 `vX.Y.Z` 标签和附带两个安装包的 Release（推送 `vX.Y.Z` 标签或在 Actions 页面手动运行也可以）。
+### 发布新版本
 
-从 11.5 之前的版本（技能名 `meeting-minutes`）升级时，直接运行新的 `install.py` 即可：旧技能会移到 `skill-backups/`，原有的角色和术语继续可用。
+1. 在 `CHANGELOG.md` 顶部加上 `## X.Y.Z` 一节；
+2. 运行 `python3 build_package.py --version X.Y.Z` 并提交；
+3. 合并到 `main`。
+
+GitHub Actions 发现这个版本还没有 Release，就会运行测试、打包，创建 `vX.Y.Z` 标签和附带两个安装包的 Release。
+
+</details>
 
 ## 许可证
 
-[MIT](LICENSE)
+[MIT](LICENSE) © 2026 sunxuwang001-sketch

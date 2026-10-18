@@ -22,13 +22,22 @@
 
 ## 安装
 
+到 [Releases](https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest) 下载安装包：
+
+| 安装包 | 用在哪里 |
+| --- | --- |
+| `meeting_offline-<版本>-local.zip` | Codex、Claude Code、WorkBuddy、CodeBuddy（装在电脑上的工具） |
+| `meeting_offline-<版本>-upload.zip` | 直接上传到 ChatGPT、Claude.ai，或在 WorkBuddy 里导入 |
+
 ### 本机工具：Codex / Claude Code / WorkBuddy / CodeBuddy
 
+解压 `local.zip`，在解压出的目录里运行：
+
 ```bash
-git clone https://github.com/sunxuwang001-sketch/meeting_offline.git
-cd meeting_offline
 python3 install.py          # Windows: py -3 install.py
 ```
+
+也可以直接 `git clone https://github.com/sunxuwang001-sketch/meeting_offline.git`，在仓库目录里运行同样的命令。
 
 安装器会自动检测本机装了哪些工具，并全部装好；只装其中一个时加 `--target`：
 
@@ -43,11 +52,7 @@ python3 install.py          # Windows: py -3 install.py
 
 ### 云端：ChatGPT / Claude.ai
 
-先打一个上传包，然后在工具里上传 `dist/meeting_offline-<版本>-upload.zip`：
-
-```bash
-python3 build_package.py --out dist
-```
+在工具里上传 `meeting_offline-<版本>-upload.zip`（从 Releases 下载，或在仓库里运行 `python3 build_package.py --out dist` 自己打包）：
 
 - ChatGPT：在技能设置里上传（需要支持技能的工作区套餐，个人版目前可能没有这个功能）。
 - Claude.ai：设置 → 功能 → 技能 → 上传。
@@ -82,6 +87,8 @@ meeting-offline/          技能本体
   tests/                  单元测试
 install.py                本机安装器
 build_package.py          更新 MANIFEST 校验值并打包
+CHANGELOG.md              更新记录（也用作 Release 说明）
+.github/workflows/        推送版本标签后自动发布 Release
 MANIFEST.json             技能文件校验值，安装器据此校验
 安装说明.txt              随安装包分发的简要说明
 ```
@@ -97,8 +104,10 @@ python3 build_package.py --version X.Y.Z --out dist   # 改完技能文件后更
 
 `MANIFEST.json` 记录技能文件的校验值；改动 `meeting-offline/` 下的任何文件后，都要运行 `build_package.py` 更新它，否则安装器会拒绝安装。
 
+发布新版本：在 `CHANGELOG.md` 加上 `## X.Y.Z` 一节，用 `build_package.py --version X.Y.Z` 更新版本号并提交，然后推送 `vX.Y.Z` 标签。GitHub Actions 会运行测试、打包，并创建附带两个安装包的 Release。
+
 从 11.5 之前的版本（技能名 `meeting-minutes`）升级时，直接运行新的 `install.py` 即可：旧技能会移到 `skill-backups/`，原有的角色和术语继续可用。
 
 ## 许可证
 
-尚未指定。
+[MIT](LICENSE)

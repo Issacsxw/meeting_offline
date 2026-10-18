@@ -57,4 +57,4 @@ MEETING_OFFLINE_SANDBOX=1 MEETING_OFFLINE_DATA_HOME=/mnt/data/meeting-offline-da
 
 ## 打包边界
 
-`build_package.py --out <目录>` 生成两个包：`meeting_offline-<版本>-本地安装.zip`（含安装器、清单和测试，用于本机工具）和 `meeting_offline-<版本>-upload.zip`（只含技能文件夹，用于 ChatGPT、Claude.ai 上传或 WorkBuddy 导入）。两者都排除本地库、偏好中的个人信息、设备档案、录音、真实转写与纪要、任务缓存、会话链接和密钥。`MANIFEST.json` 提供文件校验值，安装器先校验再复制。不要把整个数据目录或 `会议纪要` 文件夹一起打包。
+`build_package.py --out <目录>` 生成两个包：`meeting_offline-<版本>-local.zip`（含安装器、清单和测试，用于本机工具）和 `meeting_offline-<版本>-upload.zip`（只含技能文件夹，用于 ChatGPT、Claude.ai 上传或 WorkBuddy 导入）。两者都排除本地库、偏好中的个人信息、设备档案、录音、真实转写与纪要、任务缓存、会话链接和密钥。`MANIFEST.json` 提供文件校验值，安装器先校验再复制。不要把整个数据目录或 `会议纪要` 文件夹一起打包。

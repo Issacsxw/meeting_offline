@@ -8,7 +8,7 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parent
-EXTRA = ['install.py', '安装说明.txt', 'MANIFEST.json']
+EXTRA = ['install.py', '安装说明.txt', 'MANIFEST.json', 'LICENSE']
 
 
 def skill_files(include_tests=True):
@@ -17,10 +17,12 @@ def skill_files(include_tests=True):
                   and (include_tests or 'tests' not in p.relative_to(ROOT / 'meeting-offline').parts))
 
 
-def write_zip(path, files):
+def write_zip(path, files, extra=()):
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as bundle:
         for file in files:
             bundle.write(file, file.relative_to(ROOT).as_posix())
+        for file, name in extra:
+            bundle.write(file, name)
     print('zip: ' + str(path.resolve()))
 
 
@@ -41,9 +43,10 @@ def main():
         args.out.mkdir(parents=True, exist_ok=True)
         version = manifest['version']
         # Local tools (Codex, Claude Code, WorkBuddy): run install.py from the unpacked folder.
-        write_zip(args.out / ('meeting_offline-' + version + '-本地安装.zip'), [ROOT / n for n in EXTRA] + skill_files())
+        write_zip(args.out / ('meeting_offline-' + version + '-local.zip'), [ROOT / n for n in EXTRA] + skill_files())
         # Cloud upload (ChatGPT, Claude.ai, WorkBuddy import): only the skill folder, SKILL.md one level down.
-        write_zip(args.out / ('meeting_offline-' + version + '-upload.zip'), skill_files(include_tests=False))
+        write_zip(args.out / ('meeting_offline-' + version + '-upload.zip'), skill_files(include_tests=False),
+                  [(ROOT / 'LICENSE', 'meeting-offline/LICENSE')])
 
 
 if __name__ == '__main__':

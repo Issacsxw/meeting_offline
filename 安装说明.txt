@@ -1,7 +1,7 @@
 会议纪要技能 · 多工具通用版
 
 【本机工具：Codex / Claude Code / WorkBuddy / CodeBuddy】
-1. 解压 meeting_offline-<版本>-本地安装.zip。
+1. 解压 meeting_offline-<版本>-local.zip。
 2. macOS/Linux：在解压目录执行 python3 install.py
    Windows：在解压目录执行 py -3 install.py
    默认装到本机检测到的全部工具；只装某一个可加 --target codex / claude / workbuddy / codebuddy。

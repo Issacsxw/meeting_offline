@@ -51,6 +51,8 @@ def png_for(html_path, out=None):
 
 def shown_name(speaker, display_names=None):
     """How a speaker reads in the minutes: the confirmed name through the device's display_names, else the label."""
+    if speaker.get('diarization_unassigned') and not speaker.get('identity_group'):
+        return '说话人未分离'
     if speaker.get('accepted_unknown') or speaker.get('role_name') == UNKNOWN_ROLE:
         return f'{UNKNOWN_ROLE}（{speaker["key"]}）'
     if not speaker.get('role_confirmed'):
@@ -100,6 +102,8 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     identities = set()
     unknown = 0
     for key, speaker in speakers.items():
+        if speaker.get('diarization_unassigned') and not speaker.get('identity_group'):
+            continue  # unattributed speech is not a participant
         if speaker.get('accepted_unknown') or speaker.get('role_name') == UNKNOWN_ROLE:
             unknown += 1
             continue

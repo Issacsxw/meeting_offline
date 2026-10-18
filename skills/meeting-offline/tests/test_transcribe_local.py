@@ -102,14 +102,101 @@ class LocalTests(unittest.TestCase):
             self.assertFalse(local.transcribe(self.audio, 'funasr', speakers=3)['reused'])
 
     def test_assign_speakers_by_overlap_and_merges_runs(self):
-        pieces = [(0.0, 0.5, '今天'), (0.5, 1.0, '开会。'), (1.2, 1.6, '我'), (1.6, 2.0, '同意'), (2.0, 2.4, '。'), (5.0, 5.2, '好')]
+        pieces = [(0.0, 0.5, '今天'), (0.5, 1.0, '开会。'), (1.2, 1.6, '我'), (1.6, 2.0, '同意'), (2.0, 2.4, '。'),
+                  (3.0, 3.2, '对'), (5.0, 5.2, '好')]
         turns = [(0.0, 1.1, 0), (1.1, 2.5, 1)]
         self.assertEqual(local.assign_speakers(pieces, turns), [
             {'speaker_id': 0, 'start_ms': 0, 'end_ms': 1000, 'text': '今天开会。'},
             {'speaker_id': 1, 'start_ms': 1200, 'end_ms': 2400, 'text': '我同意。'},
-            {'speaker_id': 1, 'start_ms': 5000, 'end_ms': 5200, 'text': '好'}])
+            {'speaker_id': 1, 'start_ms': 3000, 'end_ms': 3200, 'text': '对'},      # half a second after the turn: theirs
+            {'speaker_id': None, 'start_ms': 5000, 'end_ms': 5200, 'text': '好'}])  # 2.5 s away: nobody's
+        self.assertTrue(all(s['speaker_id'] is None for s in local.assign_speakers(pieces, [])))
         long = [(i * 1.0, i * 1.0 + 1, '字') for i in range(40)]
         self.assertTrue(all(s['end_ms'] - s['start_ms'] <= local.MAX_SEGMENT_MS for s in local.assign_speakers(long, [(0, 40, 0)])))
+
+    def whisper(self, turns=((0, 2.1, 0), (2.1, 4, 1)), fail=None, model_error=None):
+        """Fakes for faster-whisper and sherpa-onnx; counts transcription runs."""
+        word = lambda start, end, text: types.SimpleNamespace(start=start, end=end, word=text)
+        segments = [types.SimpleNamespace(start=0, end=2, text='x', words=[word(0, 1, '先看'), word(1, 2, '预算。')]),
+                    types.SimpleNamespace(start=2, end=4, text='x', words=[word(2.2, 3, '可以'), word(3, 4, '。')])]
+        runs = self.runs = []
+        class Whisper:
+            def __init__(self, model, **kwargs): pass
+            def transcribe(self, samples, **kwargs): runs.append(kwargs); return iter(segments), None
+        turn = lambda start, end, speaker: types.SimpleNamespace(start=start, end=end, speaker=speaker)
+        class Result:
+            def sort_by_start_time(self): return [turn(*t) for t in turns]
+        class Config:
+            def __init__(self, **kwargs): pass
+            def validate(self): return True
+        def diarize(config):
+            if fail:
+                raise RuntimeError(fail)
+            return types.SimpleNamespace(process=lambda samples: Result())
+        sherpa = module('sherpa_onnx', OfflineSpeakerDiarizationConfig=Config,
+                        OfflineSpeakerSegmentationModelConfig=lambda **k: k, OfflineSpeakerSegmentationPyannoteModelConfig=lambda **k: k,
+                        SpeakerEmbeddingExtractorConfig=lambda **k: k, FastClusteringConfig=lambda **k: k, OfflineSpeakerDiarization=diarize)
+        fw = module('faster_whisper', WhisperModel=Whisper, decode_audio=lambda path, sampling_rate: [0.0] * 16000)
+        def model_file(url, folder, member=None):
+            if model_error:
+                raise local.LocalError(model_error)
+            return Path(folder) / 'm.onnx'
+        return mock.patch.dict(sys.modules, {'faster_whisper': fw, 'sherpa_onnx': sherpa}), mock.patch.object(local, 'model_file', side_effect=model_file)
+
+    def test_separation_that_finds_nobody_is_reported_as_none(self):
+        modules, models = self.whisper(turns=())
+        with modules, models:
+            result = local.transcribe(self.audio, 'whisper', model='small')
+        self.assertEqual((result['speaker_separation'], result['speakers_detected'], result['speaker_coverage']), ('none', 0, 0.0))
+        self.assertTrue(all(s['speaker_id'] is None for s in result['segments']))
+        state = prepare_speakers.prepare(['1=' + result['result_path']])
+        self.assertEqual(state['sources'][0]['separation'], {'status': 'none', 'coverage': 0.0, 'speakers': 0})
+        self.assertEqual([(s['key'], s['diarization_unassigned']) for s in state['speakers']], [('1-UNASSIGNED', True)])
+
+    def test_partly_separated_speech_is_reported_with_its_coverage(self):
+        modules, models = self.whisper(turns=((0, 1.0, 0),))  # nobody within a second of the second half
+        with modules, models:
+            result = local.transcribe(self.audio, 'whisper', model='small')
+        self.assertEqual((result['speaker_separation'], result['speakers_detected']), ('partial', 1))
+        self.assertAlmostEqual(result['speaker_coverage'], 5 / 8, places=3)  # 先看预算。 of 先看预算。可以。
+
+    def test_separation_models_are_fetched_before_the_long_transcription(self):
+        modules, models = self.whisper(model_error='下载说话人分离模型失败')
+        with modules, models, self.assertRaisesRegex(local.LocalError, '下载'):
+            local.transcribe(self.audio, 'whisper', model='small')
+        self.assertEqual(self.runs, [])
+        modules, models = self.whisper(model_error='下载说话人分离模型失败')
+        with modules, models:  # with consent, the text is still useful
+            self.assertEqual(local.transcribe(self.audio, 'whisper', model='small', allow_unseparated=True)['speaker_separation'], 'none')
+
+    def test_a_failed_separation_keeps_the_transcription_for_the_next_run(self):
+        modules, models = self.whisper(fail='onnx runtime error')
+        with modules, models, self.assertRaisesRegex(local.LocalError, '转写文字已保存'):
+            local.transcribe(self.audio, 'whisper', model='small')
+        self.assertEqual(len(self.runs), 1)
+        modules, models = self.whisper()
+        with modules, models:
+            result = local.transcribe(self.audio, 'whisper', model='small')
+        self.assertEqual(self.runs, [])  # transcription came from the checkpoint
+        self.assertEqual(result['speaker_separation'], 'voice')
+
+    def test_a_damaged_cache_is_set_aside_and_recomputed(self):
+        with self.fake_funasr():
+            first = local.transcribe(self.audio, 'funasr')
+            Path(first['result_path']).write_text('{"segments": [', encoding='utf-8')  # an interrupted write
+            again = local.transcribe(self.audio, 'funasr')
+        self.assertFalse(again['reused'])
+        self.assertTrue(Path(first['result_path'] + '.damaged').exists())
+        self.assertEqual(len([c for c in FakeAutoModel.calls if c[0] == 'generate']), 2)
+
+    def test_old_caches_get_an_honest_status(self):
+        with self.fake_funasr():
+            first = local.transcribe(self.audio, 'funasr')
+        data = json.loads(Path(first['result_path']).read_text(encoding='utf-8'))
+        data.update(speaker_separation='voice', segments=[{**s, 'speaker_id': None} for s in data['segments']])
+        Path(first['result_path']).write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        with self.fake_funasr():
+            self.assertEqual(local.transcribe(self.audio, 'funasr')['speaker_separation'], 'none')
 
     def test_whisper_words_get_speakers_from_diarization(self):
         word = lambda start, end, text: types.SimpleNamespace(start=start, end=end, word=text)

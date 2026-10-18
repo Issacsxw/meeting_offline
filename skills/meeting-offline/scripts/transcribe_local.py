@@ -25,6 +25,7 @@ import urllib.request
 
 import audio_duration
 import device_context
+import prepare_speakers
 
 ENGINES = {
     'funasr': {'name': 'FunASR', 'modules': ['funasr', 'torch'], 'packages': 'funasr torch torchaudio modelscope'},
@@ -92,6 +93,12 @@ def cache_path(audio_sha, engine, model, speakers=None, hotwords=()):
     tag = '-' + hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else ''
     name = f'{audio_sha[:24]}-{engine}-{model}-{speakers or "auto"}{tag}.json'
     return device_context.paths()['jobs'] / 'local' / name
+
+
+PAUSE_S = 1.0  # a word this close to a speaker turn is theirs; farther away it stays unassigned
+SEPARATION_NOTE = {
+    'partial': '注意：只有 {pct}% 的发言分出了说话人，其余标为“说话人未分离”。认领时这部分不能算到任何人头上。',
+    'none': '注意：没有分出说话人，所有发言都标为“说话人未分离”。纪要里不能据此判断谁说了什么、谁负责。'}
 
 
 def note(message):
@@ -169,8 +176,9 @@ def assign_speakers(pieces, turns):
             shared = min(end, turn_end) - max(start, turn_start)
             if shared > overlap:
                 best, overlap = speaker, shared
-        if best is None and turns:  # inside a pause: nearest turn
-            best = min(turns, key=lambda t: min(abs(start - t[1]), abs(end - t[0])))[2]
+        if best is None and turns:  # inside a short pause: the nearest turn; farther away stays unassigned
+            gap, near = min((max(t[0] - end, start - t[1], 0), t[2]) for t in turns)
+            best = near if gap <= PAUSE_S else None
         last = segments[-1] if segments else None
         if (last and last['speaker_id'] == best and not last['text'].endswith(('。', '？', '！', '?', '!'))
                 and end * 1000 - last['start_ms'] <= MAX_SEGMENT_MS):
@@ -182,35 +190,97 @@ def assign_speakers(pieces, turns):
     return [s for s in segments if s['text']]
 
 
-def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=()):
+def stage_path(sha, name):
+    return device_context.paths()['jobs'] / 'local' / f'{sha[:24]}-{name}.json'
+
+
+def load_json(path):
+    """A cached file, or None when missing or damaged (an interrupted write); damaged files are set aside."""
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, dict):
+            raise ValueError('not an object')
+    except (ValueError, OSError):
+        broken = path.with_name(path.name + '.damaged')
+        path.replace(broken)
+        note(f'缓存文件损坏（可能上次处理被中断），已移到 {broken.name}，这一步会重新计算。')
+        return None
+    device_context.require_device(data.get('device_id'), path)  # another device's file is refused, not discarded
+    return data
+
+
+def save_json(path, value):
+    device_context.atomic_json(path, {**value, 'device_id': device_context.device_id()})
+
+
+def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(), sha=None, allow_unseparated=False):
+    """Whisper text plus sherpa-onnx speakers, each step saved so a failure later never repeats an earlier one."""
     from faster_whisper import WhisperModel, decode_audio
     import sherpa_onnx
-    samples = decode_audio(str(audio), sampling_rate=16000)
-    whisper = WhisperModel(model, device=device, compute_type='default')
-    options = {'language': 'zh', 'initial_prompt': WHISPER_PROMPT, 'vad_filter': True, 'word_timestamps': True}
-    if hotwords:
-        options['hotwords'] = '、'.join(hotwords)  # faster-whisper 1.0+; only passed when there are any
-    parts, _ = whisper.transcribe(samples, **options)
-    pieces = []
-    for part in parts:
-        words = part.words or []
-        pieces += [(w.start, w.end, w.word) for w in words] if words else [(part.start, part.end, part.text)]
     folder = device_context.paths()['data_root'] / 'local-models'
-    segmentation = model_file(SEGMENTATION_URL, folder, 'sherpa-onnx-pyannote-segmentation-3-0/model.onnx')
-    embedding = model_file(EMBEDDING_URL, folder)
-    config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
-        segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
-            pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(segmentation))),
-        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(embedding)),
-        clustering=sherpa_onnx.FastClusteringConfig(num_clusters=speakers or -1, threshold=0.5))
-    if not config.validate():
-        raise LocalError('说话人分离模型配置无效，请删除 ' + str(folder) + ' 后重试。')
-    result = sherpa_onnx.OfflineSpeakerDiarization(config).process(samples).sort_by_start_time()
-    turns = [(t.start, t.end, int(t.speaker)) for t in result]
+    try:  # fetch the separation models before the long transcription, not after
+        segmentation = model_file(SEGMENTATION_URL, folder, 'sherpa-onnx-pyannote-segmentation-3-0/model.onnx')
+        embedding = model_file(EMBEDDING_URL, folder)
+    except LocalError:
+        if not allow_unseparated:
+            raise
+        segmentation = embedding = None
+    tag = hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else 'nohw'
+    asr_path, samples = stage_path(sha, f'whisper-{model}-{tag}-text'), None
+    saved = load_json(asr_path)
+    if saved:
+        pieces = [tuple(p) for p in saved['pieces']]
+        note('复用已保存的转写文字，直接进行说话人分离。')
+    else:
+        samples = decode_audio(str(audio), sampling_rate=16000)
+        whisper = WhisperModel(model, device=device, compute_type='default')
+        options = {'language': 'zh', 'initial_prompt': WHISPER_PROMPT, 'vad_filter': True, 'word_timestamps': True}
+        if hotwords:
+            options['hotwords'] = '、'.join(hotwords)  # faster-whisper 1.0+; only passed when there are any
+        parts, _ = whisper.transcribe(samples, **options)
+        pieces = []
+        for part in parts:
+            words = part.words or []
+            pieces += [(w.start, w.end, w.word) for w in words] if words else [(part.start, part.end, part.text)]
+        save_json(asr_path, {'pieces': pieces})
+    turns_path = stage_path(sha, f'sherpa-{speakers or "auto"}-speakers')
+    saved = load_json(turns_path)
+    if saved:
+        turns = [tuple(t) for t in saved['turns']]
+    elif segmentation is None:
+        turns = []
+    else:
+        try:
+            config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
+                segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
+                    pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(segmentation))),
+                embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(embedding)),
+                clustering=sherpa_onnx.FastClusteringConfig(num_clusters=speakers or -1, threshold=0.5))
+            if not config.validate():
+                raise LocalError('说话人分离模型配置无效，请删除 ' + str(folder) + ' 后重试。')
+            if samples is None:
+                samples = decode_audio(str(audio), sampling_rate=16000)
+            result = sherpa_onnx.OfflineSpeakerDiarization(config).process(samples).sort_by_start_time()
+            turns = [(t.start, t.end, int(t.speaker)) for t in result]
+            save_json(turns_path, {'turns': turns})
+        except Exception as error:  # sherpa-onnx raises several types; the text is already saved
+            if not allow_unseparated:
+                raise LocalError('说话人分离失败：' + str(error) + '。转写文字已保存，修好后再运行会直接从分离这一步开始；'
+                                 '或者加 --allow-unseparated，先得到不区分说话人的结果。') from error
+            turns = []
     return model, assign_speakers(pieces, turns)
 
 
-def transcribe(audio, engine, model=None, speakers=None, device='auto', force=False, hotwords=()):
+def with_separation(result):
+    """Status from the segments themselves; also corrects results cached before 11.10, which always said 'voice'."""
+    summary = prepare_speakers.separation(result['segments'])
+    return {**result, 'speaker_separation': summary['status'], 'speaker_coverage': summary['coverage'],
+            'speakers_detected': summary['speakers']}
+
+
+def transcribe(audio, engine, model=None, speakers=None, device='auto', force=False, hotwords=(), allow_unseparated=False):
     audio = Path(audio).expanduser().resolve()
     if not audio.is_file():
         raise LocalError('录音不存在：' + str(audio))
@@ -222,14 +292,13 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
     sha = file_digest(audio)
     hotwords = list(hotwords)
     cached = cache_path(sha, engine, model, speakers, hotwords)
-    if cached.exists() and not force:
-        result = json.loads(cached.read_text(encoding='utf-8'))
-        device_context.require_device(result.get('device_id'), cached)
-        return {**result, 'result_path': str(cached), 'reused': True}
+    result = None if force else load_json(cached)
+    if result:
+        return {**with_separation(result), 'result_path': str(cached), 'reused': True}
     started = datetime.now(timezone.utc)
     note(f'开始本地识别（{ENGINES[engine]["name"]}）。首次运行会先下载模型；录音不会离开这台电脑。')
     used, segments = (run_funasr(audio, speakers, device, hotwords) if engine == 'funasr'
-                      else run_whisper(audio, model, speakers, device, hotwords))
+                      else run_whisper(audio, model, speakers, device, hotwords, sha, allow_unseparated))
     if not segments:
         raise LocalError('没有识别出任何语音；请确认录音里有人说话。')
     try:
@@ -237,11 +306,11 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         length = segments[-1]['end_ms'] / 1000
     result = {'route': 'local', 'engine': engine, 'model': f'{engine}:{used}', 'device_id': device_context.device_id(),
-              'audio_sha256': sha, 'duration_seconds': round(length, 3), 'speaker_separation': 'voice', 'hotwords_used': hotwords,
+              'audio_sha256': sha, 'duration_seconds': round(length, 3), 'hotwords_used': hotwords,
               'started_at': started.isoformat(), 'finished_at': datetime.now(timezone.utc).isoformat(),
               'text': ''.join(s['text'] for s in segments), 'segments': segments}
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    cached.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    result = with_separation(result)
+    device_context.atomic_json(cached, result)  # an interrupted run never leaves half a file behind
     return {**result, 'result_path': str(cached), 'reused': False}
 
 
@@ -256,6 +325,8 @@ def main():
     parser.add_argument('--hf-mirror', action='store_true', help='从 hf-mirror.com 下载 whisper 模型（国内网络）')
     parser.add_argument('--hotwords', help='已确认标准词的 JSON（与 transcribe_qwen.py --hotwords 相同格式）')
     parser.add_argument('--force', action='store_true', help='忽略本机缓存，重新识别')
+    parser.add_argument('--allow-unseparated', action='store_true',
+                        help='说话人分离失败时仍输出结果（发言标为“说话人未分离”），只在用户同意后使用')
     args = parser.parse_args()
     if args.check:
         print(json.dumps(check(), ensure_ascii=False, indent=2)); return
@@ -269,12 +340,15 @@ def main():
         os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
     try:
         result = transcribe(args.audio, args.engine, args.model, args.speakers, args.device, args.force,
-                            load_hotwords(args.hotwords))
+                            load_hotwords(args.hotwords), args.allow_unseparated)
     except (LocalError, ValueError, OSError, subprocess.SubprocessError) as error:
         parser.exit(2, str(error) + '\n')
     summary = {k: result[k] for k in ('engine', 'model', 'duration_seconds', 'reused', 'result_path')}
     summary['hotwords_used'] = len(result.get('hotwords_used', []))
-    summary.update(speakers=len({s['speaker_id'] for s in result['segments']}), segments=len(result['segments']))
+    summary.update(speakers=result['speakers_detected'], speaker_separation=result['speaker_separation'],
+                   speaker_coverage=result['speaker_coverage'], segments=len(result['segments']))
+    if result['speaker_separation'] != 'voice':
+        note(SEPARATION_NOTE[result['speaker_separation']].format(pct=round(result['speaker_coverage'] * 100)))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

@@ -408,6 +408,13 @@ def main() -> int:
         result = qwen_job.execute(args, sys.modules[__name__])
     except (ValueError, OSError) as exc:
         raise TranscriptionError(str(exc)) from exc
+    import prepare_speakers
+    summary = prepare_speakers.separation(result.get("segments", []))
+    result = {**result, "speaker_separation": summary["status"], "speaker_coverage": summary["coverage"],
+              "speakers_detected": summary["speakers"]}
+    if summary["status"] != "voice":
+        print(f"[Qwen] 注意：只有 {round(summary['coverage'] * 100)}% 的发言分出了说话人，其余标为“说话人未分离”。",
+              file=sys.stderr)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

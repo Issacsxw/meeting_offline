@@ -14,6 +14,26 @@ def label(speaker_id):
     return 'S' + str(speaker_id)
 
 
+SEPARATED = .9  # share of speech that must carry a speaker before separation counts as done
+
+
+def separation(segments):
+    """How much of the speech (by characters) has a speaker: status 'voice' (≥90%), 'partial' or 'none'.
+
+    Unassigned speech is not a speaker, so it never counts toward `speakers`."""
+    total = assigned = 0
+    ids = set()
+    for segment in segments:
+        size = len(str(segment.get('text') or '').strip())
+        total += size
+        if segment.get('speaker_id') is not None:
+            assigned += size
+            ids.add((type(segment['speaker_id']).__name__, segment['speaker_id']))
+    coverage = assigned / total if total else 0.0
+    status = 'none' if not ids else 'voice' if coverage >= SEPARATED else 'partial'
+    return {'status': status, 'coverage': round(coverage, 3), 'speakers': len(ids)}
+
+
 def prepare(sources):
     state = {'schema_version': 1, 'status': 'awaiting_roles', 'sources': [],
              'speakers': [], 'user_confirmed_merges': [], 'pending_role_keys': []}
@@ -32,7 +52,7 @@ def prepare(sources):
             raise ValueError('Expected nonempty transcript segments: ' + str(path))
         state['sources'].append({'source_id': source_id, 'path': str(path),
                                  'duration_seconds': data.get('duration_seconds'),
-                                 'model': data.get('model')})
+                                 'model': data.get('model'), 'separation': separation(segments)})
         grouped = {}
         for index, segment in enumerate(segments):
             if not isinstance(segment, dict) or not isinstance(segment.get('text'), str):

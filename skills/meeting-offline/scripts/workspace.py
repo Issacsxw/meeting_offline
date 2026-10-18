@@ -189,6 +189,10 @@ def save_roles(root, mappings, expected):
                 raise ValueError('Unknown speaker.')
             if mapping.get('keep_unknown'):
                 resolved.append((mapping['key'], None)); continue
+            if speakers[mapping['key']].get('diarization_unassigned') and mapping.get('confirm_single_speaker') is not True:
+                # Speech the separation could not attribute may mix several people.
+                raise ValueError('“说话人未分离”的部分可能混有多人的发言，不能直接认领成一个人。'
+                                 '只有用户明确说这部分都是同一个人时，才加 confirm_single_speaker。')
             profile_id = mapping.get('profile_id')
             if profile_id:
                 if profile_id not in profiles:
@@ -311,6 +315,8 @@ def validate_analysis(root, analysis):
                 for key in ('proposer', 'owner'):
                     if item.get(key) and (item[key] not in speakers or speakers[item[key]]['source_id'] != source_id):
                         raise ValueError(f'{where}.{key}: speaker attribution must reference this source.')
+                    if item.get(key) and speakers[item[key]].get('diarization_unassigned') and not speakers[item[key]].get('identity_group'):
+                        raise ValueError(f'{where}.{key}: 来自“说话人未分离”的片段，不能当作某个人的发言或认领。')
                 if field == 'decisions' and item.get('status') not in ('direction', 'proposal', 'decided', 'open'):
                     raise ValueError(f'{where}.status must be direction, proposal, decided, or open.')
                 if field == 'actions' and item.get('owner') and item.get('owner_basis') not in ('self_commitment', 'explicit_assignment'):

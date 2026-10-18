@@ -29,7 +29,7 @@ def write_zip(path, files, extra=(), base=ROOT):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--version', help='New version, e.g. 11.4.0')
+    parser.add_argument('--version', help='New version, e.g. 1.0.0-beta.2')
     parser.add_argument('--out', type=Path, help='Directory for the zips; omit to only refresh MANIFEST.json')
     args = parser.parse_args()
     manifest_path = ROOT / 'MANIFEST.json'

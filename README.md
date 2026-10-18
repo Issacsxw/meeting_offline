@@ -290,7 +290,7 @@ build_package.py          更新校验值并打包
 
 打包：`python3 build_package.py --out dist`。改动 `skills/meeting-offline/` 后都要运行它更新 `MANIFEST.json`，否则安装器会拒绝安装。
 
-发布：在 `CHANGELOG.md` 加一节 `## X.Y.Z`，运行 `python3 build_package.py --version X.Y.Z`，提交并合并到 `main`，GitHub Actions 会自动测试、打包并发布 Release。
+发布：在 `CHANGELOG.md` 加一节 `## 版本号`（正式版之前是 `1.0.0-beta.N`），运行 `python3 build_package.py --version 版本号`，提交并合并到 `main`，GitHub Actions 会自动测试、打包并发布 Release。
 </details>
 
 <br>

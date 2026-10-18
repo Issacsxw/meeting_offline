@@ -67,5 +67,6 @@ jobs:
       - name: Publish release
         if: env.SKIP != '1'
         run: |
-          gh release create "v$VERSION" dist/*.zip --target "$GITHUB_SHA" \
+          # --latest: the numbering restarted at 1.0.0-beta.1, so "highest version" would still pick 11.9.0
+          gh release create "v$VERSION" dist/*.zip --target "$GITHUB_SHA" --latest \
             --title "meeting_offline $VERSION" --notes-file notes.md

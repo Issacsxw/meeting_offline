@@ -5,6 +5,8 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
+import wave
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import find_recordings as f
 
@@ -78,6 +80,29 @@ class FindRecordingsTests(unittest.TestCase):
 
     def test_missing_locations_are_not_searched(self):
         self.assertEqual(f.find(home=self.home), {'searched': [], 'since': f.find(home=self.home)['since'], 'recordings': []})
+
+    def test_empty_and_truncated_wav_do_not_hide_normal_recordings(self):
+        folder = self.home / 'Downloads'; folder.mkdir()
+        with wave.open(str(folder / '正常.wav'), 'wb') as output:
+            output.setparams((1, 2, 8000, 0, 'NONE', 'not compressed'))
+            output.writeframes(b'\0\0' * 16000)
+        (folder / '空文件.wav').write_bytes(b'')
+        (folder / '截断.wav').write_bytes(b'RIFF\x24\x00\x00\x00WAVEfmt ')
+        # The standard-library reader must fail safely even when ffprobe is not installed.
+        with patch.object(f.audio_duration.shutil, 'which', return_value=None):
+            recordings = {item['name']: item for item in f.find(home=self.home)['recordings']}
+        self.assertEqual(set(recordings), {'正常.wav', '空文件.wav', '截断.wav'})
+        self.assertEqual(recordings['正常.wav']['duration_seconds'], 2)
+        self.assertIsNone(recordings['空文件.wav']['duration_seconds'])
+        self.assertIsNone(recordings['截断.wav']['duration_seconds'])
+
+    def test_truncated_wav_duration_can_fall_back_to_ffprobe(self):
+        path = self.home / 'truncated.wav'; path.write_bytes(b'')
+        result = f.subprocess.CompletedProcess([], 0, '{"format":{"duration":"2.5"}}')
+        with patch.object(f.audio_duration.shutil, 'which', return_value='ffprobe'), \
+             patch.object(f.audio_duration.subprocess, 'run', return_value=result) as probe:
+            self.assertEqual(f.audio_duration.duration(path), 2.5)
+        self.assertEqual(probe.call_args.args[0][-1], str(path))
 
 
 if __name__ == '__main__':

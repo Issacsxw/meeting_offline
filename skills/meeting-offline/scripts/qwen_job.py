@@ -7,6 +7,7 @@ import os
 import tempfile
 from file_lock import locked_file
 import device_context
+import audio_duration
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,6 +75,25 @@ def check_result(result, config, error):
             raise error('转写结果里有时间戳异常的片段；原始返回内容已保留在任务目录。')
 
 
+def require_mono(audio, error):
+    # Filetrans defaults to channel 0, and its diarization supports mono only. Never silently lose tracks.
+    try:
+        channels = audio_duration.audio_channels(audio)
+    except ValueError as exc:
+        raise error(str(exc)) from exc
+    if channels != [1]:
+        raise error('文件转写只接受单音轨、单声道录音；检测到各音轨声道数为 '
+                    + str(channels) + '。仅提交声道 0 会漏掉其他声道；请先确认并准备单声道副本。不会自动混音或上传。')
+
+
+def warn_legacy_channels(manifest, config):
+    if (config['route'] == 'temporary_storage' and manifest.get('audio_channels') != [1]
+            and manifest.get('origin') != 'imported_existing_transcript'):
+        import sys
+        print('[Qwen] 旧任务未做声道预检，原请求仅选择声道 0；若录音还有其他声道，其内容可能未转写。复用或续查不会重新上传。',
+              file=sys.stderr, flush=True)
+
+
 def describe(args, api):
     audio = Path(args.audio).expanduser().resolve()
     if not audio.is_file():
@@ -111,6 +131,10 @@ def execute(args, api):
     if prior and (prior.get('audio_sha256') != sha or prior.get('config') != config):
         raise api.TranscriptionError('这个任务目录属于另一段录音或另一组设置；请换一个目录。')
     if args.dry_run:
+        if (config['route'] == 'temporary_storage' and not args.import_result
+                and not (prior and (prior.get('task_id') or
+                         (prior.get('status') == 'completed' and (directory / 'result.json').exists())))):
+            require_mono(audio, api.TranscriptionError)
         return {'dry_run': True, 'audio': audio.name, **config, 'audio_sha256': sha,
                 'job_dir': str(directory), 'job_status': prior.get('status') if prior else 'new',
                 'network_route': args.network_route, 'cloud_transfer': not bool(args.import_result or (prior and (prior.get('status') == 'completed' or prior.get('task_id') or prior.get('oss_url')))),
@@ -133,6 +157,7 @@ def execute(args, api):
         if manifest['status'] == 'completed' and result_path.exists():
             result = json.loads(result_path.read_text(encoding='utf-8'))
             check_result(result, config, api.TranscriptionError)
+            warn_legacy_channels(manifest, config)
             print('[Qwen] 复用本机已完成的转写结果，未联网、未读取密钥', file=sys.stderr)
             return result
         if args.import_result:
@@ -145,6 +170,22 @@ def execute(args, api):
             save_json(result_path, result)
             stage('completed', origin='imported_existing_transcript', imported_at=now())
             return result
+        raw_path, task_path = directory / 'transcript-raw.json', directory / 'task-response.json'
+        if (config['route'] == 'temporary_storage' and manifest.get('task_id')
+                and raw_path.exists() and task_path.exists()):
+            # The result URL expires. A crash after downloading must not make our local copy unusable.
+            try:
+                raw = json.loads(raw_path.read_text(encoding='utf-8'))
+                task = json.loads(task_path.read_text(encoding='utf-8'))
+                recovered = api.normalize_long(raw, task, config['duration_seconds'])
+                check_result(recovered, config, api.TranscriptionError)
+            except (OSError, ValueError, TypeError, AttributeError, api.TranscriptionError):
+                print('[Qwen] 已保存的原始结果无效，将只重新获取现有任务的结果，不重新上传或提交。', file=sys.stderr)
+            else:
+                save_json(result_path, recovered)
+                stage('completed')
+                print('[Qwen] 从本机原始结果恢复，未联网、未读取密钥', file=sys.stderr)
+                return recovered
         if manifest['status'] in ('submitting', 'uncertain_submission'):
             raise api.TranscriptionError('上次提交的结果不确定（可能已在阿里云处理并计费），为避免重复扣费不会自动重试。请先在百炼控制台确认，再用新的 --job-dir 重新提交。')
         if manifest['status'] in ('uploading', 'upload_failed') and not args.retry_upload:
@@ -152,6 +193,12 @@ def execute(args, api):
         needs_transfer = not manifest.get('task_id') and not manifest.get('oss_url')
         if needs_transfer and not args.confirm_upload:
             raise api.TranscriptionError('这段录音尚未上传。先用 --dry-run 查看计划，用户同意后加 --confirm-upload。')
+        if config['route'] == 'temporary_storage':
+            if not manifest.get('task_id'):
+                require_mono(audio, api.TranscriptionError)
+                manifest['audio_channels'] = [1]  # metadata only: keep the existing config/hash and resumable job ID
+            else:
+                warn_legacy_channels(manifest, config)
         key = api.get_api_key()
         if config['route'] == 'direct_base64':
             stage('submitting')
@@ -198,7 +245,6 @@ def execute(args, api):
                 stage('failed' if getattr(exc, 'not_processed', False) else 'uncertain_submission', last_error=str(exc)[:300])
                 raise
             stage('submitted', task_id=task_id)
-        task_path = directory / 'task-response.json'
         if manifest['status'] == 'result_ready' and task_path.exists():
             task = json.loads(task_path.read_text(encoding='utf-8'))
         else:
@@ -212,7 +258,7 @@ def execute(args, api):
         if len(succeeded) != 1:
             raise api.TranscriptionError('转写任务没有返回唯一的成功结果；返回内容已保留在任务目录。')
         transcript = api.request_json(succeeded[0]['transcription_url'])
-        save_json(directory / 'transcript-raw.json', transcript)
+        save_json(raw_path, transcript)
         result = api.normalize_long(transcript, task, config['duration_seconds'])
         check_result(result, config, api.TranscriptionError)
         save_json(result_path, result)

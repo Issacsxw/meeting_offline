@@ -70,6 +70,32 @@ class SeparationTests(unittest.TestCase):
         self.assertNotIn('等2人', minutes)  # unattributed speech is not counted as another person
         self.assertIn('**说话人未分离**', Path(files['transcript_md']).read_text(encoding='utf-8'))
 
+    def test_revoking_an_attributed_unassigned_identity_is_rejected_before_any_write(self):
+        w.save_roles(self.root, [{'key': 'm-A', 'name': '林悦', 'entity_type': 'person', 'scope': '测试'},
+                                 {'key': 'm-UNASSIGNED', 'name': '王五', 'entity_type': 'person',
+                                  'scope': '测试', 'confirm_single_speaker': True}], self.revision())
+        action = {'task': '做测算', 'owner': 'm-UNASSIGNED', 'owner_basis': 'self_commitment', 'evidence': [1]}
+        w.set_analysis(self.root, {'sources': {'m': {'actions': [action]}}}, self.revision())
+        revision = self.revision()
+        paths = [self.root / name for name in ('state.json', 'manifest.json', 'analysis.json',
+                                               'corrections.json', 'exports/latest.json')]
+        paths.append(device_context.paths()['memory'])
+        before = {path: path.read_bytes() for path in paths}
+        snapshots = sorted((self.root / 'revisions').iterdir())
+        with self.assertRaises(ValueError) as caught:
+            w.save_roles(self.root, [{'key': 'm-A', 'name': '还没批准的新人物', 'entity_type': 'person', 'scope': '测试'},
+                                     {'key': 'm-UNASSIGNED', 'keep_unknown': True}], revision)
+        self.assertEqual({path: path.read_bytes() for path in paths}, before)
+        self.assertEqual(sorted((self.root / 'revisions').iterdir()), snapshots)
+        self.assertIn('尚未保存', str(caught.exception))
+        # Clearing the attribution first makes revocation valid, without silently assigning the task elsewhere.
+        w.set_analysis(self.root, {'sources': {'m': {'actions': [{**action, 'owner': None, 'owner_basis': None}]}}}, revision)
+        w.save_roles(self.root, [{'key': 'm-UNASSIGNED', 'keep_unknown': True}], self.revision())
+        speaker = next(s for s in w.read(self.root / 'state.json')['speakers'] if s['key'] == 'm-UNASSIGNED')
+        self.assertTrue(speaker['accepted_unknown'])
+        self.assertIsNone(speaker['identity_group'])
+        self.assertEqual(w.read(self.root / 'exports/latest.json')['revision'], self.revision())
+
 
 if __name__ == '__main__':
     unittest.main()

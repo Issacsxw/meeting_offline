@@ -58,6 +58,13 @@ class RoutingAndNormalizationTests(unittest.TestCase):
         self.assertEqual([item["speaker_id"] for item in result["segments"]], [0, 1])
         self.assertEqual(result["temporary_audio_retention_hours"], 48)
 
+    def test_multiple_channels_cannot_silently_merge_speakers(self):
+        transcript = {'transcripts': [
+            {'channel_id': 0, 'sentences': [{'speaker_id': 0, 'begin_time': 2000, 'end_time': 3000, 'text': '甲。'}]},
+            {'channel_id': 1, 'sentences': [{'speaker_id': 0, 'begin_time': 0, 'end_time': 1000, 'text': '乙。'}]}]}
+        with self.assertRaisesRegex(MODULE.TranscriptionError, '多个声道'):
+            MODULE.normalize_long(transcript, {}, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

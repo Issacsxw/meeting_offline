@@ -114,25 +114,27 @@ def confirm_batch(root, choices, expected, via='batch'):
         state = w.read(root / 'state.json')
         w.check_revision(state, expected)
         store_path = w.memory_path(state)
-        saved = {path: path.read_bytes() if path.exists() else None for path in (root / 'corrections.json', store_path)}
-        changes, skipped = [], []
-        try:
-            for n, choice in enumerate(choices):
-                try:
-                    payload = expand(root, state, choice)
-                    if payload is None:  # an earlier choice in this batch already corrected these words
-                        skipped.append(choice['candidate_id']); continue
-                    changes.append(apply_choice(root, state, payload, via=via))
-                except ValueError as error:
-                    raise ValueError(f'第 {n + 1} 条（{choice.get("candidate_id") if isinstance(choice, dict) else choice}）：{error}') from None
-        except BaseException:
-            for path, content in saved.items():
-                if content is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    with locked_file(str(path) + '.lock') if path == store_path else nullcontext():
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        # Other workspaces share this store. Snapshot, all choices and rollback are one locked batch.
+        with locked_file(str(store_path) + '.lock'):
+            saved = {path: path.read_bytes() if path.exists() else None for path in (root / 'corrections.json', store_path)}
+            changes, skipped = [], []
+            try:
+                for n, choice in enumerate(choices):
+                    try:
+                        payload = expand(root, state, choice)
+                        if payload is None:  # an earlier choice in this batch already corrected these words
+                            skipped.append(choice['candidate_id']); continue
+                        changes.append(apply_choice(root, state, payload, via=via, store_lock_held=True))
+                    except ValueError as error:
+                        raise ValueError(f'第 {n + 1} 条（{choice.get("candidate_id") if isinstance(choice, dict) else choice}）：{error}') from None
+            except BaseException:
+                for path, content in saved.items():
+                    if content is None:
+                        path.unlink(missing_ok=True)
+                    else:
                         memory.atomic_write(path, json.loads(content))
-            raise
+                raise
         return w.commit(root, state, {'kind': 'term_batch_reviewed', 'actor': 'user',
                                      'candidate_ids': [c['candidate_id'] for c in changes], 'skipped': skipped})
 
@@ -159,10 +161,11 @@ def expand(root, state, choice):
     for variant in card['variants']:
         available = [o['index'] for o in variant['occurrences'] if o['available']]
         chosen = available if segments == 'all' else [i for i in available if i in segments]
-        if chosen and variant['form'] != canonical:
+        if chosen:
             everything = len(chosen) == len(variant['occurrences'])
             selections.append({'heard': variant['form'], 'segment_indices': chosen,
-                               'learn_alias': choice.get('learn_alias', everything) and everything})
+                               'learn_alias': variant['form'] != canonical
+                                              and choice.get('learn_alias', everything) and everything})
     if not selections:
         return None
     return {'candidate_id': card['id'], 'decision': 'confirm', 'canonical': canonical,
@@ -174,7 +177,7 @@ CONFIRMATIONS = {'card': '用户在本地术语选择卡片查看原文后明确
                  'batch': '用户在对话中查看批量修正清单（含原文片段）后明确确认。'}
 
 
-def apply_choice(root, state, payload, via='card'):
+def apply_choice(root, state, payload, via='card', *, store_lock_held=False):
     """Validate and apply one choice to corrections, memory and state; the caller commits the revision."""
     card = next((c for c in cards(root, state) if c['id'] == payload.get('candidate_id')), None)
     if card is None:
@@ -232,7 +235,7 @@ def apply_choice(root, state, payload, via='card'):
     w.validate_analysis(root, w.read(root / 'analysis.json'))
     store_path = w.memory_path(state)
     store_path.parent.mkdir(parents=True, exist_ok=True)
-    with locked_file(str(store_path) + '.lock'):
+    with nullcontext() if store_lock_held else locked_file(str(store_path) + '.lock'):
         store = memory.read_store(store_path)
         active = [t for t in store['terms'] if t.get('active', True) and t['scope'] == scope]
         for term in active:

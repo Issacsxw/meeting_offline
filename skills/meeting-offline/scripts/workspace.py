@@ -145,6 +145,7 @@ def memory_path(state):
 
 def commit(root, state, change):
     assert_workspace(root, state)
+    validate_analysis(root, read(root / 'analysis.json'), state=state)
     state['device_id'] = device_context.device_id()
     state['revision'] += 1
     state['updated_at'] = now()
@@ -216,14 +217,6 @@ def save_roles(root, mappings, expected, via='page'):
                     'confirmation': ('用户在本地说话人复核页明确填写并保存：' if via == 'page' else '用户在对话中明确确认：') + mapping['key']}
                 new_profiles.append(profile)
             resolved.append((mapping['key'], profile))
-        for profile in new_profiles:
-            confirmed_memory_upsert(memory_path(state), 'role', profile)
-            if profile['entity_type'] == 'person':
-                confirmed_memory_upsert(memory_path(state), 'term', {
-                    'id': 'name-' + digest([profile['scope'], profile['name']])[:16],
-                    'canonical': profile['name'], 'scope': profile['scope'], 'aliases': [],
-                    'definition': profile.get('role_title', ''),
-                    'confirmation': '用户在本地角色复核页明确选择具体人物并填写姓名。' if via == 'page' else '用户在对话中明确确认具体人物的姓名。'})
         for key, profile in resolved:
             speaker = speakers[key]
             if profile is None:
@@ -232,6 +225,18 @@ def save_roles(root, mappings, expected, via='page'):
                 speaker.update(role_name=profile['name'] + ('｜' + profile['role_title'] if profile.get('role_title') else ''),
                                display_name=profile['name'], identity_group=profile['id'], accepted_unknown=False)
             speaker['role_confirmed'] = True
+        try:
+            validate_analysis(root, read(root / 'analysis.json'), state=state)
+        except ValueError as error:
+            raise ValueError('角色更新与现有纪要归属冲突，尚未保存。请先修改相关负责人或提出者归属后重试：' + str(error)) from error
+        for profile in new_profiles:
+            confirmed_memory_upsert(memory_path(state), 'role', profile)
+            if profile['entity_type'] == 'person':
+                confirmed_memory_upsert(memory_path(state), 'term', {
+                    'id': 'name-' + digest([profile['scope'], profile['name']])[:16],
+                    'canonical': profile['name'], 'scope': profile['scope'], 'aliases': [],
+                    'definition': profile.get('role_title', ''),
+                    'confirmation': '用户在本地角色复核页明确选择具体人物并填写姓名。' if via == 'page' else '用户在对话中明确确认具体人物的姓名。'})
         return commit(root, state, {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'})
 
 
@@ -286,9 +291,9 @@ def corrected_text(text, source_id, index, corrections, protected=None):
     return text
 
 
-def validate_analysis(root, analysis):
+def validate_analysis(root, analysis, state=None):
     """Check the assistant-written analysis against the transcript; errors name the offending item."""
-    state = read(Path(root) / 'state.json')
+    state = read(Path(root) / 'state.json') if state is None else state
     assert_workspace(root, state)
     sources = {s['source_id']: read(s['path']) for s in state['sources']}
     speakers = {s['key']: s for s in state['speakers']}
@@ -589,11 +594,16 @@ def publish(root, source_ids=None, png_overrides=None):
         targets = source_ids or [sid for sid, f in latest['files'].items() if f.get('html')]
         if not targets:
             raise ValueError('还没有可发布的纪要 HTML（角色确认并写入 analysis 后才会生成）。')
+        sections = read(root / 'analysis.json')['sources']
         files = {}
         for sid in targets:
             exported = latest['files'].get(sid, {})
             if not exported.get('html'):
                 raise ValueError('来源 ' + sid + ' 还没有纪要 HTML。')
+            if (not sections.get(sid, {}).get('reader', {}).get('points')
+                    and any(s.get('core_points') for s in state['speakers']
+                            if s['source_id'] == sid and not s.get('ignored_by_user'))):
+                raise ValueError('来源 ' + sid + ' 仍在使用未绑定逐条证据的观点预览；请补全 reader.points 及 evidence，核对后再发布。')
             png = png_overrides.get(sid) or exported.get('png')
             if not png:
                 raise ValueError('来源 ' + sid + ' 没有 PNG：' + exported.get('png_error', '')
@@ -601,6 +611,9 @@ def publish(root, source_ids=None, png_overrides=None):
             documents = [('html', exported['html']), ('png', png)] + [(k, exported[k]) for k in ('md', 'transcript_md', 'insight_md') if exported.get(k)]
             files[sid] = {kind: {'path': str(Path(value).resolve()), 'sha256': file_digest(value)} for kind, value in documents}
         publication = read(root / 'publication.json') if (root / 'publication.json').exists() else {}
+        if publication.get('export_version') != latest['version']:
+            # An old source must not inherit the new global version when only another source is published.
+            publication['files'] = {}
         publication.update(export_version=latest['version'], revision=state['revision'], published_at=now())
         publication.setdefault('files', {}).update(files)
         write(root / 'publication.json', publication)

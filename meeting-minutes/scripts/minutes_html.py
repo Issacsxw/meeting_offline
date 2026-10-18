@@ -27,6 +27,16 @@ def render(document):
     return source.replace('<title>会议纪要</title>', '<title>' + html.escape(document['topic']) + '</title>')
 
 
+def png_for(html_path, out=None):
+    """Export the PNG next to the HTML; a failed render never blocks the HTML or role/term saves."""
+    import render_png
+    import subprocess
+    try:
+        return render_png.render(html_path, out)
+    except (render_png.BrowserNotFound, RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
+        return {'png': None, 'png_error': str(error)}
+
+
 def from_workspace(state, sid, section, corrections):
     """Use assistant-authored concise prose; never infer owners or summaries here."""
     speakers = {s['key']: s for s in state['speakers'] if s['source_id'] == sid and not s.get('ignored_by_user')}
@@ -89,11 +99,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--document', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--no-png', action='store_true', help='只生成 HTML，不自动导出同名 PNG')
     args = parser.parse_args()
     document = json.loads(args.document.read_text(encoding='utf-8'))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render(document), encoding='utf-8')
-    print(str(args.out.resolve()))
+    print(json.dumps({'html': str(args.out.resolve()), **({} if args.no_png else png_for(args.out))},
+                     ensure_ascii=False, indent=2))
 
 
 if __name__ == '__main__':

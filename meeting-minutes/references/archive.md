@@ -15,9 +15,10 @@ python3 <skill-dir>/scripts/archive_meeting.py \
 
 ## 正文与 PNG 完成后
 
-已有工作区与核验后的 `publication.json` 时：
+工作区导出已自动生成 HTML 与 PNG。打开 PNG 检查后：
 
 ```bash
+python3 <skill-dir>/scripts/workspace.py publish --workspace /path/to/workspace
 python3 <skill-dir>/scripts/archive_meeting.py \
   --workspace /path/to/workspace --source 4
 ```

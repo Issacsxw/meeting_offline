@@ -459,11 +459,49 @@ def export(root):
         if ready and structured:
             document = minutes_html.from_workspace(state, sid, structured, corrections)
             path = directory / (sid + '-纪要.html')
-            path.write_text(minutes_html.render(document), encoding='utf-8')
+            rendered = minutes_html.render(document)
+            unchanged = path.exists() and path.read_text(encoding='utf-8') == rendered
+            if not unchanged:
+                path.write_text(rendered, encoding='utf-8')
             files['html'] = str(path)
+            image = path.with_suffix('.png')
+            png = {'png': str(image)} if unchanged and image.exists() else minutes_html.png_for(path, image)
+            if png['png']:
+                files['png'] = png['png']
+            else:
+                files['png_error'] = png['png_error']
         output['files'][sid] = files
     write(root / 'exports/latest.json', output)
     return output
+
+
+def publish(root, source_ids=None, png_overrides=None):
+    """Record the checked HTML/PNG of the latest export for archive_meeting.py."""
+    root = Path(root)
+    with locked(root):
+        state = read(root / 'state.json'); latest = read(root / 'exports/latest.json')
+        if latest['revision'] != state['revision']:
+            raise ValueError('导出不是最新版本；请先运行 export。')
+        png_overrides = png_overrides or {}
+        targets = source_ids or [sid for sid, f in latest['files'].items() if f.get('html')]
+        if not targets:
+            raise ValueError('还没有可发布的纪要 HTML（角色确认并写入 analysis 后才会生成）。')
+        files = {}
+        for sid in targets:
+            exported = latest['files'].get(sid, {})
+            if not exported.get('html'):
+                raise ValueError('来源 ' + sid + ' 还没有纪要 HTML。')
+            png = png_overrides.get(sid) or exported.get('png')
+            if not png:
+                raise ValueError('来源 ' + sid + ' 没有 PNG：' + exported.get('png_error', '')
+                                 + ' 可在 HTML 中导出图片后用 --png ' + sid + '=路径 指定。')
+            files[sid] = {kind: {'path': str(Path(value).resolve()), 'sha256': file_digest(value)}
+                          for kind, value in (('html', exported['html']), ('png', png))}
+        publication = read(root / 'publication.json') if (root / 'publication.json').exists() else {}
+        publication.update(export_version=latest['version'], revision=state['revision'], published_at=now())
+        publication.setdefault('files', {}).update(files)
+        write(root / 'publication.json', publication)
+        return publication
 
 
 def hotwords(root, terms, out, weight=2):
@@ -485,6 +523,7 @@ def main():
         p = sub.add_parser(command); p.add_argument('--workspace', required=True)
     a = sub.add_parser('analysis'); a.add_argument('--workspace', required=True); a.add_argument('--file', required=True); a.add_argument('--revision', required=True, type=int)
     c = sub.add_parser('candidates'); c.add_argument('--workspace', required=True); c.add_argument('--file', required=True); c.add_argument('--revision', required=True, type=int)
+    pub = sub.add_parser('publish'); pub.add_argument('--workspace', required=True); pub.add_argument('--source', action='append'); pub.add_argument('--png', action='append', help='SID=PATH，浏览器内手动导出的 PNG')
     h = sub.add_parser('hotwords'); h.add_argument('--workspace', required=True); h.add_argument('--term', action='append', required=True); h.add_argument('--out', required=True); h.add_argument('--weight', type=int, default=2)
     args = parser.parse_args()
     try:
@@ -494,6 +533,7 @@ def main():
         elif args.command == 'candidates':
             import term_review
             result = term_review.prepare(args.workspace, read(args.file), args.revision)
+        elif args.command == 'publish': result = publish(args.workspace, args.source, {k: str(v) for k, v in pairs(args.png).items()})
         elif args.command == 'hotwords': result = hotwords(args.workspace, args.term, args.out, args.weight)
         else: result = export(Path(args.workspace))
         print(json.dumps(result, ensure_ascii=False, indent=2))

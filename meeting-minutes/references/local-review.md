@@ -109,7 +109,7 @@ python3 <skill-dir>/scripts/workspace.py analysis \
 python3 <skill-dir>/scripts/workspace.py export --workspace /path/to/workspace
 ```
 
-角色/术语保存时自动重建：带角色转写、SRT、详细纪要底稿和结构化 JSON。角色已确认且有 analysis 时同时生成可编辑 HTML；正文的精简程度由助手撰写的 `reader` 内容决定，脚本不自动总结。每条行动项带原始证据；角色归属由稳定说话人键解析，改名后执行者及要点归属随映射更新。原始转写、原话证据保持不变，校对文本保留 original_text。角色与术语变化不会触发 ASR、读取云端密钥或上传音频。HTML 更新后重新导出 PNG，避免图片与正文不一致。
+角色/术语保存时自动重建：带角色转写、SRT、详细纪要底稿和结构化 JSON。角色已确认且有 analysis 时同时生成可编辑 HTML，并用本机浏览器无头导出同名 PNG（`files.<source_id>.png`；没有浏览器时记录 `png_error`，HTML 不受影响）；正文的精简程度由助手撰写的 `reader` 内容决定，脚本不自动总结。每条行动项带原始证据；角色归属由稳定说话人键解析，改名后执行者及要点归属随映射更新。原始转写、原话证据保持不变，校对文本保留 original_text。角色与术语变化不会触发 ASR、读取云端密钥或上传音频。正文不变时复用已有 PNG；正文变化时自动重新出图，图片与 HTML 始终同一版本。
 
 历史状态在 `revisions/`，导出在 `exports/<内容版本>/`；`exports/latest.json` 指向最新结果。用户认为角色认错时，可重新选择正确角色并保存；先前快照和导出仍在。跨页面并发修改会拒绝过期 revision，需要刷新后重试。
 

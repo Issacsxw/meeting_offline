@@ -6,7 +6,7 @@
 
 解压完整压缩包，在解压目录运行 `python3 install.py`；Windows 可用 `py -3 install.py`。默认安装到本机 `$CODEX_HOME/skills/meeting-minutes`，没有设置 CODEX_HOME 时使用 `~/.codex/skills/meeting-minutes`。已有同名技能会先备份，数据目录不会被覆盖。安装只复制技能、初始化本机目录，不上传文件、不读取密钥，也不安装 MCP。
 
-需要 Python 3.9+、浏览器，以及进行 Qwen 文件上传时可用的 curl。macOS 语音备忘录读取需按 [只读 MCP 配置](voice-memos-setup.md) 单独设置；直接处理本地录音无需这个 MCP。Apple 语音备忘录集成仅用于 macOS；Windows/Linux 可走本地文件路线。已在 macOS 验证；跨平台文件锁和时长读取有离线测试，Windows/Linux 尚未做实机端到端验证。
+需要 Python 3.9+、Chrome/Edge/Chromium 之一（用于直接生成 PNG；缺少时可在 HTML 页面手动导出），以及进行 Qwen 文件上传时可用的 curl。macOS 语音备忘录读取需按 [只读 MCP 配置](voice-memos-setup.md) 单独设置；直接处理本地录音无需这个 MCP。Apple 语音备忘录集成仅用于 macOS；Windows/Linux 可走本地文件路线。已在 macOS 验证；跨平台文件锁和时长读取有离线测试，Windows/Linux 尚未做实机端到端验证。
 
 在 Codex 重新载入技能后可说：“使用 $meeting-minutes，整理这份录音。” 首次云端转写前，在本机配置 DashScope 密钥：macOS 运行 `scripts/setup_keychain.sh`，其他平台设置本机环境变量 `DASHSCOPE_API_KEY`。密钥不写入技能或会议文件；服务名默认也包含设备 ID，避免沿用其他电脑的钥匙串项。云端录音处理仍以当次用户授权为准。
 

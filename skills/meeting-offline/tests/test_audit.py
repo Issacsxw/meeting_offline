@@ -41,6 +41,14 @@ class FactTests(unittest.TestCase):
         self.assertEqual(kinds('10 月 16 日前完成毛利测算，周五给结论', [2]), [])
         self.assertEqual(kinds('下周五给结论', [2]), ['fact'])
         self.assertEqual(kinds('方案已经定下来', [3], status='decided'), [])
+        # ordinary meeting speech that is not a negation, and one that is
+        for claim, said in [('下周给出报价', '能不能下周给？'), ('改为执行方案B', '方案A不行，换方案B'), ('不同渠道分开定价', '各个渠道分开定价')]:
+            self.assertEqual(audit.check_claim('m', 'x', claim, [0], [said]), [], said)
+        self.assertEqual([p['kind'] for p in audit.check_claim('m', 'x', '本季度招人', [0], ['这个季度不招。'])], ['negation'])
+        self.assertEqual([p['kind'] for p in audit.check_claim('m', 'x', '方案通过', [0], ['我不同意，再考虑'], status='decided')], ['status'])
+        self.assertEqual([p['kind'] for p in audit.check_claim('m', 'x', '预算 5 万', [0], ['预算一点五万'])], ['fact'])
+        self.assertEqual(audit.facts('一百多万，五六十万，1万5，二零二六年'),
+                         {('number', '1000000'), ('number', '500000'), ('number', '600000'), ('number', '15000'), ('year', '2026')})
 
 
 class AuditFlowTests(unittest.TestCase):

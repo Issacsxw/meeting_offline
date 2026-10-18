@@ -134,7 +134,7 @@ def prepare_workspace(audio, result, sha):
     import prepare_speakers
     import workspace
     root = device_context.paths()['meetings'] / ('inbox-' + sha[:12])
-    if (root / 'state.json').exists():
+    if (root / 'exports' / 'latest.json').exists():  # written last by workspace.initialize
         return root
     if root.exists():  # an earlier run stopped half way through creating it; only this inbox ever writes here
         shutil.rmtree(root)

@@ -114,8 +114,9 @@ class InboxTests(unittest.TestCase):
     def test_a_half_made_workspace_is_rebuilt_and_problems_are_told_once(self):
         path = self.drop('周会.m4a')
         half = device_context.paths()['meetings'] / ('inbox-' + inbox.digest(path)[:12]); half.mkdir(parents=True)
+        (half / 'state.json').write_text('{}', encoding='utf-8')  # stopped right after the first file
         self.run_pass(); self.run_pass()
-        self.assertTrue((half / 'state.json').exists())
+        self.assertTrue((half / 'exports' / 'latest.json').exists())
         with mock.patch.object(inbox, 'candidates', side_effect=PermissionError):
             for _ in range(3):
                 self.assertEqual(self.run_pass()['error'], 'permission')

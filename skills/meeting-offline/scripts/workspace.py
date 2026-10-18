@@ -180,7 +180,8 @@ def save_roles(root, mappings, expected, via='page'):
         known = memory.read_store(memory_path(state))
         profiles = {p['id']: p for p in known['roles'] if p.get('active', True)}
         speakers = {s['key']: s for s in state['speakers']}
-        if not isinstance(mappings, list) or len({m['key'] for m in mappings}) != len(mappings):
+        if not isinstance(mappings, list) or any(not isinstance(m, dict) or not isinstance(m.get('key'), str) for m in mappings) \
+                or len({m['key'] for m in mappings}) != len(mappings):
             raise ValueError('Invalid or duplicate speaker mappings.')
         resolved = []
         new_profiles = []

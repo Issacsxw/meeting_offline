@@ -91,7 +91,7 @@ class LocalTests(unittest.TestCase):
         self.assertEqual(biased['hotwords_used'], ['贝联', '净草签', '有效量房'])
         self.assertEqual(FakeAutoModel.calls[-1][2]['hotword'], '贝联 净草签 有效量房')
         self.assertNotIn('hotword', FakeAutoModel.calls[1][2])
-        # Without hotwords the cache name is the one 11.8.0 used, so its results are still found.
+        # Without hotwords the cache name is the one earlier versions used, so their results are still found.
         self.assertEqual(local.cache_path('a' * 64, 'funasr', 'paraformer-zh').name, 'a' * 24 + '-funasr-paraformer-zh-auto.json')
         with self.assertRaisesRegex(local.LocalError, '热词'):
             words.write_text('["贝联"]', encoding='utf-8'); local.load_hotwords(words)

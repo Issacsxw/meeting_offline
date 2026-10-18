@@ -1,5 +1,6 @@
 # Publishes a GitHub Release with both zips whenever main carries a MANIFEST version that has no
 # release yet (or a vX.Y.Z tag is pushed, or the workflow is run by hand). The tag is created here.
+# When that version is already released, only its notes are refreshed from CHANGELOG.md.
 name: Release
 
 on:
@@ -32,7 +33,7 @@ jobs:
             echo "tag $GITHUB_REF_NAME != MANIFEST v$version"; exit 1
           fi
           if gh release view "v$version" >/dev/null 2>&1; then
-            echo "Release v$version already exists; nothing to do."
+            echo "Release v$version already exists; only its notes are refreshed."
             echo "SKIP=1" >> "$GITHUB_ENV"
           fi
 
@@ -50,7 +51,6 @@ jobs:
           git diff --exit-code MANIFEST.json .claude-plugin/plugin.json || { echo "MANIFEST.json or plugin.json is stale; run build_package.py and commit"; exit 1; }
 
       - name: Release notes from CHANGELOG
-        if: env.SKIP != '1'
         run: |
           awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no '## $VERSION' section"; exit 1; }
@@ -64,9 +64,13 @@ jobs:
           详细说明见 [README](https://github.com/${{ github.repository }}#readme)。
           EOF
 
+      - name: Refresh notes of the existing release
+        if: env.SKIP == '1'
+        run: gh release edit "v$VERSION" --notes-file notes.md
+
       - name: Publish release
         if: env.SKIP != '1'
         run: |
-          # --latest: the numbering restarted at 1.0.0-beta.1, so "highest version" would still pick 11.9.0
+          # --latest: the newest release is the latest one, whatever older tags exist
           gh release create "v$VERSION" dist/*.zip --target "$GITHUB_SHA" --latest \
             --title "meeting_offline $VERSION" --notes-file notes.md

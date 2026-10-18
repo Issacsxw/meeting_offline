@@ -89,7 +89,7 @@ def load_hotwords(path):
 
 
 def cache_path(audio_sha, engine, model, speakers=None, hotwords=()):
-    # Without hotwords the name matches 11.8.0, so results cached by that version are reused.
+    # Without hotwords the name is the one earlier versions used, so their cached results are reused.
     tag = '-' + hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else ''
     name = f'{audio_sha[:24]}-{engine}-{model}-{speakers or "auto"}{tag}.json'
     return device_context.paths()['jobs'] / 'local' / name
@@ -274,7 +274,7 @@ def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(),
 
 
 def with_separation(result):
-    """Status from the segments themselves; also corrects results cached before 11.10, which always said 'voice'."""
+    """Status from the segments themselves; also corrects results cached by earlier versions, which always said 'voice'."""
     summary = prepare_speakers.separation(result['segments'])
     return {**result, 'speaker_separation': summary['status'], 'speaker_coverage': summary['coverage'],
             'speakers_detected': summary['speakers']}

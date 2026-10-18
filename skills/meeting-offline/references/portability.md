@@ -31,7 +31,7 @@ python3 <skill-dir>/scripts/device_context.py init
 
 使用命令返回的 `memory`、`preferences`、`meetings`、`jobs`、`archive` 路径，不凭旧聊天或另一台电脑的绝对路径寻找记忆。设备 ID 来自 macOS 的 IOPlatformUUID、Windows 的 MachineGuid 或 Linux 的 machine-id；只保存带固定命名空间的 SHA-256 截断摘要，原始标识不落盘、不上传。读不到稳定标识时停止初始化，为该电脑单独设置 `MEETING_OFFLINE_DEVICE_ID`；不要给不同电脑复用同一值。
 
-默认数据目录是 `~/.meeting-offline/devices/<device-id>/`。旧版本的数据目录（11.4 的 `~/.meeting-minutes/`、更早的 `~/.codex/meeting-minutes-memory/`）存在时继续使用，不需要迁移；设备 ID 和钥匙串名称没有随改名变化。里面包含 `memory.json`、`preferences.json`、`meetings/`、`transcription-jobs/`。归档目录是 `~/Documents/会议纪要/<device-id>/`。同设备重复安装继续使用原库；不同设备自动使用空库，即使 home 或 Documents 被同步，也不扫描或合并其他设备的目录。
+默认数据目录是 `~/.meeting-offline/devices/<device-id>/`。旧版本的数据目录（改名前的 `~/.meeting-minutes/`、更早的 `~/.codex/meeting-minutes-memory/`）存在时继续使用，不需要迁移；设备 ID 和钥匙串名称没有随改名变化。里面包含 `memory.json`、`preferences.json`、`meetings/`、`transcription-jobs/`。归档目录是 `~/Documents/会议纪要/<device-id>/`。同设备重复安装继续使用原库；不同设备自动使用空库，即使 home 或 Documents 被同步，也不扫描或合并其他设备的目录。
 
 工作区、记忆库、归档索引和转写任务都写入设备归属。遇到其他设备标记会拒绝续做，不自动恢复它的角色、热词或云端任务。用户提供的新录音/转写是新的输入，仍需按本场确认角色和术语。默认不导入未标注设备的旧库。
 

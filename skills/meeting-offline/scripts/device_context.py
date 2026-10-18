@@ -65,7 +65,7 @@ def data_home():
     if sandbox():
         return Path.cwd() / 'meeting-offline-data'
     # Shared by every local AI tool on this computer. Existing data stays where it is:
-    # 11.4 used ~/.meeting-minutes, earlier versions ~/.codex/meeting-minutes-memory.
+    # Under its old name the skill used ~/.meeting-minutes, and before that ~/.codex/meeting-minutes-memory.
     current = Path.home() / '.meeting-offline'
     for legacy in (Path.home() / '.meeting-minutes', Path.home() / '.codex' / 'meeting-minutes-memory'):
         if not current.is_dir() and legacy.is_dir():

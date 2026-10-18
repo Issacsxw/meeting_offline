@@ -369,6 +369,9 @@ def normalize_long(
     segments = []
     full_text = []
     transcripts = transcript.get("transcripts", [])
+    if isinstance(transcripts, list) and len(transcripts) > 1:
+        # Speaker IDs are local to each channel. Flattening channels would merge unrelated people.
+        raise TranscriptionError('文件转写返回了多个声道结果，不能合并说话人；原始返回内容已保留，请先检查录音声道。')
     for channel in transcripts if isinstance(transcripts, list) else []:
         if not isinstance(channel, dict):
             continue

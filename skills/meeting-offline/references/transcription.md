@@ -33,6 +33,8 @@ dry-run 不读密钥、不发网络请求、不创建任务。实际上传前，
 
 默认 `--network-route direct` 只对阿里云域名绕过代理，不改系统代理。环境变量 `DASHSCOPE_API_KEY` 优先，其次在 macOS 读取本机设备对应的钥匙串服务；不打印密钥，也不放入任务 JSON。macOS 使用 afinfo；本地 M4A/WAV 时长读取有标准库回退，其他格式可用 ffprobe，或提供可信 `--duration-seconds`。无法确认时长时不上传。
 
+文件转写（超过 5 分钟，或显式加 `--filetrans`）在上传前和 dry-run 中检查所有音轨，只接受单音轨、单声道录音。WAV 使用标准库读取，M4A/MP4 等格式需安装含 ffprobe 的 FFmpeg（macOS：`brew install ffmpeg`；Windows：`winget install ffmpeg`；Linux 使用发行版软件仓库）。文件转写路线中，`--duration-seconds` 只提供时长，不能代替声道检查。[阿里云文件转写接口](https://www.alibabacloud.com/help/en/model-studio/fun-asr-recorded-speech-recognition-http-api) 默认仅处理声道 0，按声道分别计费，且说话人分离只支持单声道。多声道或无法确认声道时停止，先让用户确认并准备单声道副本；不自动选轨、混音或额外请求其他声道。旧任务已有 task ID 或完成结果时仍允许续查、离线复用，未做过声道预检的历史任务会提示可能遗漏其他声道，不重新上传。
+
 ## 续做、热词和校对
 
 任务位于初始化返回的 `jobs` 路径，按音频 SHA-256 和模型设置缓存。任务与结果带设备归属；其他设备任务不会被当成本机缓存。已完成结果先本地复用，不读密钥、不调用网络；已有 task ID 时续查，不重复提交。提交结果不确定时停止检查，不能盲目重提；上传失败可在原授权内用 `--retry-upload` 有限重试。

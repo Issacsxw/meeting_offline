@@ -10,6 +10,33 @@ import sys
 import wave
 
 
+def audio_channels(path):
+    """Channel counts for every audio stream; never assume an unreadable file is mono."""
+    path = Path(path)
+    if path.suffix.lower() in ('.wav', '.wave'):
+        try:
+            with wave.open(str(path), 'rb') as source:
+                return [source.getnchannels()]
+        except (OSError, EOFError, wave.Error):
+            pass
+    binary = shutil.which('ffprobe')
+    if not binary:
+        raise ValueError('无法本地确认录音声道；请安装含 ffprobe 的 FFmpeg 后重试，或提供已确认的单声道 WAV。本次未发起上传或转写请求。')
+    try:
+        result = subprocess.run([binary, '-v', 'error', '-select_streams', 'a', '-show_entries',
+                                 'stream=index,channels', '-of', 'json', str(path)],
+                                capture_output=True, text=True, check=True, timeout=30)
+        data = json.loads(result.stdout)
+        streams = data.get('streams') if isinstance(data, dict) else None
+        if (not isinstance(streams, list) or not streams
+                or any(not isinstance(stream, dict) or type(stream.get('channels')) is not int
+                       or stream['channels'] <= 0 for stream in streams)):
+            raise ValueError('Missing audio channel layout.')
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        raise ValueError('无法本地确认录音声道；请检查文件或用 FFmpeg 准备已确认的单声道 WAV。本次未发起上传或转写请求。') from error
+    return [stream['channels'] for stream in streams]
+
+
 def mp4_duration(path):
     with Path(path).open('rb') as handle:
         def scan(start, end):

@@ -180,7 +180,9 @@ def request_json(
         raise TranscriptionError(f"阿里云返回 HTTP {exc.code}：{hint}。详情：{body[:500]}",
                                  not_processed=400 <= exc.code < 500 and exc.code != 408) from exc
     except urllib.error.URLError as exc:
-        raise TranscriptionError(f"连不上阿里云：{exc.reason}。请检查网络后重试。", not_processed=True) from exc
+        # urllib can wrap a reset raised while request bytes are being sent, not just before connecting.
+        # A POST may already have reached the provider; the durable job must not submit it a second time.
+        raise TranscriptionError(f"阿里云连接中断：{exc.reason}。请检查网络；已提交请求的处理结果可能不确定。") from exc
     except json.JSONDecodeError as exc:
         raise TranscriptionError("阿里云返回的内容无法解析。") from exc
 

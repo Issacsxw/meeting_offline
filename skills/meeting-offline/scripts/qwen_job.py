@@ -145,6 +145,22 @@ def execute(args, api):
             save_json(result_path, result)
             stage('completed', origin='imported_existing_transcript', imported_at=now())
             return result
+        raw_path, task_path = directory / 'transcript-raw.json', directory / 'task-response.json'
+        if (config['route'] == 'temporary_storage' and manifest.get('task_id')
+                and raw_path.exists() and task_path.exists()):
+            # The result URL expires. A crash after downloading must not make our local copy unusable.
+            try:
+                raw = json.loads(raw_path.read_text(encoding='utf-8'))
+                task = json.loads(task_path.read_text(encoding='utf-8'))
+                recovered = api.normalize_long(raw, task, config['duration_seconds'])
+                check_result(recovered, config, api.TranscriptionError)
+            except (OSError, ValueError, TypeError, AttributeError, api.TranscriptionError):
+                print('[Qwen] 已保存的原始结果无效，将只重新获取现有任务的结果，不重新上传或提交。', file=sys.stderr)
+            else:
+                save_json(result_path, recovered)
+                stage('completed')
+                print('[Qwen] 从本机原始结果恢复，未联网、未读取密钥', file=sys.stderr)
+                return recovered
         if manifest['status'] in ('submitting', 'uncertain_submission'):
             raise api.TranscriptionError('上次提交的结果不确定（可能已在阿里云处理并计费），为避免重复扣费不会自动重试。请先在百炼控制台确认，再用新的 --job-dir 重新提交。')
         if manifest['status'] in ('uploading', 'upload_failed') and not args.retry_upload:
@@ -198,7 +214,6 @@ def execute(args, api):
                 stage('failed' if getattr(exc, 'not_processed', False) else 'uncertain_submission', last_error=str(exc)[:300])
                 raise
             stage('submitted', task_id=task_id)
-        task_path = directory / 'task-response.json'
         if manifest['status'] == 'result_ready' and task_path.exists():
             task = json.loads(task_path.read_text(encoding='utf-8'))
         else:
@@ -212,7 +227,7 @@ def execute(args, api):
         if len(succeeded) != 1:
             raise api.TranscriptionError('转写任务没有返回唯一的成功结果；返回内容已保留在任务目录。')
         transcript = api.request_json(succeeded[0]['transcription_url'])
-        save_json(directory / 'transcript-raw.json', transcript)
+        save_json(raw_path, transcript)
         result = api.normalize_long(transcript, task, config['duration_seconds'])
         check_result(result, config, api.TranscriptionError)
         save_json(result_path, result)

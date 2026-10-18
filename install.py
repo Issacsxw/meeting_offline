@@ -75,7 +75,7 @@ def main():
     if sys.version_info < (3, 9):
         parser.exit(1, '需要 Python 3.9 或更新版本。\n')
     bundle = Path(__file__).resolve().parent
-    source = bundle / NAME
+    source = bundle / 'skills' / NAME
     verify(bundle, source, parser)
     if args.skills_dir:
         if args.target:

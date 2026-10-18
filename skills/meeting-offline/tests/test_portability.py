@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import device_context as d
 
-INSTALLER = Path(__file__).resolve().parents[2] / 'install.py'
+INSTALLER = Path(__file__).resolve().parents[3] / 'install.py'
 
 
 class DataHomeTests(unittest.TestCase):

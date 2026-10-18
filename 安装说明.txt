@@ -18,4 +18,4 @@
 
 同一台电脑上的各工具共用一份角色、术语库；不同电脑各自从空库开始。
 本包不含任何已有会议、录音、人物档案、术语记录、设备 ID 或密钥。
-详细说明见 meeting-offline/references/portability.md。
+详细说明见 skills/meeting-offline/references/portability.md。

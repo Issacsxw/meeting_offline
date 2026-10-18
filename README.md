@@ -10,7 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="#快速开始"><b>快速开始</b></a> ·
+  <a href="#让-ai-帮你安装"><b>让 AI 安装</b></a> ·
+  <a href="#快速开始">手动安装</a> ·
   <a href="https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest"><b>下载</b></a> ·
   <a href="#你可以这样说">怎么用</a> ·
   <a href="#隐私与数据">隐私</a> ·
@@ -22,6 +23,14 @@
 开完会最费时间的往往不是开会本身，而是之后的整理：谁说了什么、最后定了什么、哪件事由谁在什么时候之前完成。
 
 **meeting_offline** 是一个装进 AI 助手里的技能。把录音或转写交给它，告诉它谁是谁，就能拿到一份简洁的会议纪要：**主题、时间、参会人、核心要点、主要 Todo**，同时给你一份可直接修改的网页和一张可以发到群里的图片。
+
+## 让 AI 帮你安装
+
+在 Codex、Claude Code、WorkBuddy 等 AI 工具里，直接说：
+
+> 帮我安装这个技能：https://github.com/sunxuwang001-sketch/meeting_offline
+
+AI 会按 [INSTALL.md](INSTALL.md) 选择适合你所用工具的方式完成安装，装好后重新打开工具即可使用。ChatGPT 和 Claude.ai 网页版需要手动上传，见[快速开始](#快速开始)。
 
 ## 为什么用它
 
@@ -63,34 +72,20 @@
 
 ## 快速开始
 
-### 1. 下载
+### 1. 安装
 
-到 [Releases](https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest) 下载对应的安装包：
-
-| 你用的工具 | 下载 |
+| 你用的工具 | 安装方式 |
 | --- | --- |
-| Codex、Claude Code、WorkBuddy、CodeBuddy（装在电脑上的） | `meeting_offline-<版本>-local.zip` |
-| ChatGPT、Claude.ai（网页 / App） | `meeting_offline-<版本>-upload.zip` |
+| Claude Code | 在 Claude Code 里输入：<br>`/plugin install meeting-offline --marketplace sunxuwang001-sketch/meeting_offline` |
+| Codex 等支持 `npx skills` 的工具 | 在终端运行：<br>`npx skills add sunxuwang001-sketch/meeting_offline --skill meeting-offline -g` |
+| WorkBuddy、CodeBuddy，或想一次装到所有工具 | 下载 [`local.zip`](https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest)，解压后在文件夹里运行 `python3 install.py`（Windows：`py -3 install.py`） |
+| ChatGPT、Claude.ai（网页 / App） | 下载 [`upload.zip`](https://github.com/sunxuwang001-sketch/meeting_offline/releases/latest)，在技能设置里上传 |
 
-### 2. 安装
+- `install.py` 会找到你电脑上装了哪些 AI 工具，并全部装好；只想装某一个时加 `--target codex`、`claude`、`workbuddy` 或 `codebuddy`。
+- ChatGPT 需要支持技能的工作区套餐（Business、Enterprise、Edu）；Claude.ai 在“设置 → 功能 → 技能”里上传。
+- WorkBuddy 也可以在应用内“专家 → 技能 → 添加技能 → 导入技能”导入 `upload.zip`。
 
-**电脑上的工具**：解压 `local.zip`，在解压出的文件夹里运行
-
-```bash
-python3 install.py        # Windows：py -3 install.py
-```
-
-安装器会找到你电脑上装了哪些 AI 工具，并全部装好。只想装某一个时加 `--target codex`、`claude`、`workbuddy` 或 `codebuddy`。
-
-> 💡 **不想碰命令行？** 直接把 `local.zip` 发给你的 Codex、Claude Code 或 WorkBuddy，对它说：“请解压这个压缩包，运行里面的 install.py 安装技能。”
-
-**ChatGPT / Claude.ai**：在技能设置里上传 `upload.zip`。
-
-- ChatGPT：需要支持技能的工作区套餐（Business、Enterprise、Edu）。
-- Claude.ai：设置 → 功能 → 技能 → 上传。
-- WorkBuddy 也可以在应用内“专家 → 技能 → 添加技能 → 导入技能”导入这个包。
-
-### 3. 开始用
+### 2. 开始用
 
 重新打开 AI 工具，直接说“整理这份会议录音”就行。也可以点名调用：Codex 输入 `$meeting-offline`，Claude Code 输入 `/meeting-offline`。
 
@@ -203,7 +198,7 @@ flowchart LR
 - Python 3.9 或更新版本，只用标准库，不需要另外安装 Python 包
 - Chrome、Edge 或 Chromium 之一，用于直接生成 PNG（可选）
 - 需要转写时：阿里云 DashScope API Key 和 curl
-- 读取 Apple 语音备忘录（可选，仅 macOS）：见 [配置说明](meeting-offline/references/voice-memos-setup.md)
+- 读取 Apple 语音备忘录（可选，仅 macOS）：见 [配置说明](skills/meeting-offline/references/voice-memos-setup.md)
 
 <details>
 <summary><b>给开发者</b></summary>
@@ -211,13 +206,15 @@ flowchart LR
 ### 仓库结构
 
 ```
-meeting-offline/          技能本体
+skills/meeting-offline/   技能本体（AI 工具安装的就是这个文件夹）
   SKILL.md                主流程、纪要要求和硬性规则
   references/             各环节详细说明（转写、认领、术语、交付、安装等）
   scripts/                Python 脚本（转写、工作区、HTML/PNG 生成、归档、本地库）
   assets/                 HTML 模板
   tests/                  单元测试
 install.py                本机安装器
+INSTALL.md                写给 AI 助手的安装说明
+.claude-plugin/           Claude Code 插件清单（插件市场安装用）
 build_package.py          更新 MANIFEST 校验值并打包
 MANIFEST.json             技能文件校验值，安装器据此校验
 CHANGELOG.md              更新记录（也用作 Release 说明）
@@ -228,13 +225,13 @@ docs/                     README 配图
 ### 测试与打包
 
 ```bash
-cd meeting-offline
+cd skills/meeting-offline
 python3 -m unittest discover -s tests      # 本机有 Chromium 时会包含 PNG 渲染测试
-cd ..
+cd ../..
 python3 build_package.py --out dist        # 生成 local.zip 和 upload.zip
 ```
 
-`MANIFEST.json` 记录技能文件的校验值。改动 `meeting-offline/` 下的任何文件后，都要运行 `build_package.py` 更新它，否则安装器会拒绝安装。
+`MANIFEST.json` 记录技能文件的校验值。改动 `skills/meeting-offline/` 下的任何文件后，都要运行 `build_package.py` 更新它，否则安装器会拒绝安装。
 
 ### 发布新版本
 

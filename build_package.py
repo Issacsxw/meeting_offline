@@ -8,19 +8,20 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parent
+SKILL = ROOT / 'skills' / 'meeting-offline'
 EXTRA = ['install.py', '安装说明.txt', 'MANIFEST.json', 'LICENSE']
 
 
 def skill_files(include_tests=True):
-    return sorted(p for p in (ROOT / 'meeting-offline').rglob('*')
+    return sorted(p for p in SKILL.rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc'
-                  and (include_tests or 'tests' not in p.relative_to(ROOT / 'meeting-offline').parts))
+                  and (include_tests or 'tests' not in p.relative_to(SKILL).parts))
 
 
-def write_zip(path, files, extra=()):
+def write_zip(path, files, extra=(), base=ROOT):
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as bundle:
         for file in files:
-            bundle.write(file, file.relative_to(ROOT).as_posix())
+            bundle.write(file, file.relative_to(base).as_posix())
         for file, name in extra:
             bundle.write(file, name)
     print('zip: ' + str(path.resolve()))
@@ -38,6 +39,12 @@ def main():
     manifest['files'] = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in skill_files()}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    # The Claude Code plugin manifest carries the same version.
+    plugin_path = ROOT / '.claude-plugin' / 'plugin.json'
+    plugin = json.loads(plugin_path.read_text(encoding='utf-8'))
+    if plugin.get('version') != manifest['version']:
+        plugin['version'] = manifest['version']
+        plugin_path.write_text(json.dumps(plugin, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print('MANIFEST.json: %d files, version %s' % (len(manifest['files']), manifest['version']))
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
@@ -46,7 +53,7 @@ def main():
         write_zip(args.out / ('meeting_offline-' + version + '-local.zip'), [ROOT / n for n in EXTRA] + skill_files())
         # Cloud upload (ChatGPT, Claude.ai, WorkBuddy import): only the skill folder, SKILL.md one level down.
         write_zip(args.out / ('meeting_offline-' + version + '-upload.zip'), skill_files(include_tests=False),
-                  [(ROOT / 'LICENSE', 'meeting-offline/LICENSE')])
+                  [(ROOT / 'LICENSE', 'meeting-offline/LICENSE')], base=SKILL.parent)
 
 
 if __name__ == '__main__':

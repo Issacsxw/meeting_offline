@@ -1,5 +1,11 @@
 # 更新记录
 
+## 11.6.0
+
+- 让 AI 助手直接从 GitHub 安装：新增写给 AI 的 `INSTALL.md`；README 开头加上“让 AI 帮你安装”。
+- 支持 Claude Code 插件市场（`/plugin install meeting-offline --marketplace sunxuwang001-sketch/meeting_offline`）和 `npx skills add sunxuwang001-sketch/meeting_offline`。
+- 技能文件夹移到 `skills/meeting-offline/`，以便各类技能安装工具自动发现；本地安装包和上传包的内容不变。
+
 ## 11.5.0
 
 - 技能改名为 `meeting-offline`（仓库名 `meeting_offline`），调用方式改为 `$meeting-offline` / `/meeting-offline`。

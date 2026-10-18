@@ -6,13 +6,14 @@
 
 | 工具 | 运行方式 | 安装 | 调用 |
 | --- | --- | --- | --- |
-| Codex | 本机 | `python3 install.py --target codex` → `~/.agents/skills/` | `$meeting-offline` 或直接描述任务 |
-| Claude Code | 本机 | `python3 install.py --target claude` → `~/.claude/skills/` | `/meeting-offline` 或直接描述任务 |
+| Codex | 本机 | `npx skills add sunxuwang001-sketch/meeting_offline --skill meeting-offline -g -a codex`，或 `python3 install.py --target codex` → `~/.agents/skills/` | `$meeting-offline` 或直接描述任务 |
+| Claude Code | 本机 | 插件市场：`/plugin install meeting-offline --marketplace sunxuwang001-sketch/meeting_offline`；或 `python3 install.py --target claude` → `~/.claude/skills/` | `/meeting-offline` 或直接描述任务 |
 | WorkBuddy | 本机 | `python3 install.py --target workbuddy` → `~/.workbuddy/skills/`；或在应用里“专家 → 技能 → 添加技能 → 导入技能”拖入上传包 | 新开会话，直接描述任务 |
 | CodeBuddy / WorkBuddy 企业版 | 本机 | `python3 install.py --target codebuddy` → `~/.codebuddy/skills/` | 新开会话，直接描述任务 |
 | ChatGPT | 云端沙箱 | 上传 `meeting_offline-<版本>-upload.zip`（需要支持技能的工作区套餐） | 直接描述任务 |
 | Claude.ai / Claude 桌面应用 | 云端沙箱 | 设置 → 功能 → 技能 → 上传同一个上传包 | 直接描述任务 |
 
+- 用户让 AI 助手安装时，助手按仓库根目录的 `INSTALL.md` 选择方式。技能文件夹在仓库的 `skills/meeting-offline/`，`npx skills`、Claude Code 插件市场和 Codex skill-installer 都直接安装这个文件夹；不经过 `install.py` 时，数据目录在首次运行 `device_context.py init` 时创建。
 - 不带 `--target` 时，安装器会装到本机检测到的全部工具；`--target all` 全部安装；其他工具用 `--skills-dir <该工具的 skills 目录>`。
 - Codex 以前读 `$CODEX_HOME/skills`。安装到 `~/.agents/skills` 时，旧位置的 `meeting-offline` 会移到 `skill-backups/`，避免出现两份；仍使用旧版 Codex 时用 `--skills-dir ~/.codex/skills`。
 - 改名前的 `meeting-minutes` 技能会移到 `skill-backups/`，避免和 `meeting-offline` 同时出现。已有同名技能会先备份，数据目录不会被覆盖。安装只复制技能、初始化本机目录，不上传文件、不读取密钥，也不安装 MCP。

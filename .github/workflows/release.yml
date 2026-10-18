@@ -38,7 +38,7 @@ jobs:
 
       - name: Run tests
         if: env.SKIP != '1'
-        working-directory: meeting-offline
+        working-directory: skills/meeting-offline
         env:
           MEETING_OFFLINE_DEVICE_ID: ci
         run: python3 -m unittest discover -s tests
@@ -47,7 +47,7 @@ jobs:
         if: env.SKIP != '1'
         run: |
           python3 build_package.py --out dist
-          git diff --exit-code MANIFEST.json || { echo "MANIFEST.json is stale; run build_package.py and commit"; exit 1; }
+          git diff --exit-code MANIFEST.json .claude-plugin/plugin.json || { echo "MANIFEST.json or plugin.json is stale; run build_package.py and commit"; exit 1; }
 
       - name: Release notes from CHANGELOG
         if: env.SKIP != '1'

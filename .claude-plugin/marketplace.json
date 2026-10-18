@@ -1,0 +1,13 @@
+{
+  "name": "meeting-offline",
+  "owner": {"name": "sunxuwang001-sketch", "url": "https://github.com/sunxuwang001-sketch"},
+  "metadata": {"description": "AI 会议纪要技能：录音 → 可编辑纪要与图片"},
+  "plugins": [
+    {
+      "name": "meeting-offline",
+      "source": "./",
+      "description": "把会议录音或转写整理成简洁的会议纪要，交付可编辑 HTML 与 PNG；说话人由你确认，角色与术语在本机持续积累。",
+      "category": "productivity"
+    }
+  ]
+}

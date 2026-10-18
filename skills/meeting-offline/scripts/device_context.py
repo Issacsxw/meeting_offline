@@ -131,7 +131,7 @@ def initialize():
         require_device(json.loads(current['memory'].read_text(encoding='utf-8')).get('device_id'), current['memory'])
     if not current['preferences'].exists():
         atomic_json(current['preferences'], {'schema_version': 1, 'device_id': current['device_id'],
-            'meeting_offline': {'default_template': 'claude-warm',
+            'meeting_offline': {'theme': 'warm',
                 'default_outputs': ['editable-html', 'png'],
                 'archive': {'root': str(current['archive']), 'audio_action': 'move'}}})
     else:

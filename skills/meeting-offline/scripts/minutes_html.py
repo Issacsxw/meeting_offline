@@ -8,6 +8,8 @@ import terms
 
 TEMPLATE = Path(__file__).resolve().parents[1] / 'assets/minutes.html'
 UNKNOWN_ROLE = '身份未确认'
+# Styles offered in the editor's 样式 menu; keys match data-theme in the template.
+THEMES = {'warm': '暖白陶土', 'business': '商务蓝', 'mono': '极简黑白', 'fresh': '清新绿', 'dark': '深色'}
 
 
 def render(document):
@@ -18,6 +20,8 @@ def render(document):
             raise ValueError('Missing text field: ' + field)
     if 'summary' in document and not isinstance(document['summary'], str):
         raise ValueError('Summary must be text.')
+    if document.get('theme', 'warm') not in THEMES:
+        raise ValueError('未知样式：' + str(document.get('theme')) + '；可选 ' + '、'.join(THEMES))
     for field, required in [('points', ('title', 'text')), ('todos', ('task', 'owner', 'deadline'))]:
         if not isinstance(document.get(field), list):
             raise ValueError('Missing list: ' + field)
@@ -39,7 +43,7 @@ def png_for(html_path, out=None):
         return {'png': None, 'png_error': str(error)}
 
 
-def from_workspace(state, sid, section, corrections, protected=(), display_names=None):
+def from_workspace(state, sid, section, corrections, protected=(), display_names=None, theme='warm'):
     """Use assistant-authored concise prose; never infer owners or summaries here.
 
     display_names is the device preference mapping a confirmed name to how it reads in the minutes."""
@@ -89,7 +93,7 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     participants = '、'.join(people)
     if unknown:
         participants = (participants + '等' if participants else '') + str(len(people) + unknown) + '人'
-    return {'schema_version': 2, 'source_id': sid,
+    return {'schema_version': 2, 'source_id': sid, 'theme': theme,
         'topic': corrected(brief.get('topic') or section.get('title') or '会议纪要'),
         'meeting_time': str(section.get('meeting_time') or section.get('meeting_date') or ''),
         'participants': participants,
@@ -102,8 +106,11 @@ def main():
     parser.add_argument('--document', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--no-png', action='store_true', help='只生成 HTML，不自动导出同名 PNG')
+    parser.add_argument('--theme', choices=THEMES, help='纪要样式：' + '、'.join(f'{k}（{v}）' for k, v in THEMES.items()))
     args = parser.parse_args()
     document = json.loads(args.document.read_text(encoding='utf-8'))
+    if args.theme:
+        document['theme'] = args.theme
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render(document), encoding='utf-8')
     print(json.dumps({'html': str(args.out.resolve()), **({} if args.no_png else png_for(args.out))},

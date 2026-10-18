@@ -84,6 +84,23 @@ class MinutesHtmlTests(unittest.TestCase):
             w.set_analysis(self.root, self.analysis(), 1)
             self.assertEqual(self.seed()['participants'], '我')
 
+    def test_theme_comes_from_preferences_and_unknown_themes_are_rejected(self):
+        self.assertEqual(self.seed_after_analysis()['theme'], 'warm')
+        with tempfile.TemporaryDirectory() as data, mock.patch.dict(os.environ, {'MEETING_OFFLINE_DATA_HOME': data}):
+            preferences = device_context.initialize()['preferences']
+            value = w.read(preferences); value['meeting_offline']['theme'] = 'fresh'; w.write(preferences, value)
+            w.export(self.root)
+            self.assertEqual(self.seed()['theme'], 'fresh')
+            value['meeting_offline']['theme'] = 'neon'; w.write(preferences, value)
+            with self.assertRaisesRegex(ValueError, 'theme'):
+                w.export(self.root)
+        with self.assertRaisesRegex(ValueError, '未知样式'):
+            minutes_html.render({'topic': 't', 'meeting_time': '', 'participants': '', 'points': [], 'todos': [], 'theme': 'neon'})
+
+    def seed_after_analysis(self):
+        w.set_analysis(self.root, self.analysis(), 1)
+        return self.seed()
+
     def test_legacy_role_name_and_accepted_unknown(self):
         state = w.read(self.root / 'state.json')
         state['speakers'][0]['role_name'] = '甲｜产品'

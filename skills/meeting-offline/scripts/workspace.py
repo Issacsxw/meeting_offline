@@ -387,15 +387,27 @@ def public_state(root):
         'exports': read(root / 'exports/latest.json') if (root / 'exports/latest.json').exists() else None}
 
 
-def display_names():
-    """Optional preferences.meeting_offline.display_names, e.g. {"用户本人": "我"}; empty by default."""
+def minutes_preferences():
+    """This device's meeting_offline preferences; written before the rename under 'meeting_minutes'."""
     path = device_context.paths()['preferences']
     if not path.exists():
         return {}
     preferences = read(path)
     device_context.require_device(preferences.get('device_id'), path)
-    # Preferences written before the rename keep their settings under 'meeting_minutes'.
-    names = (preferences.get('meeting_offline') or preferences.get('meeting_minutes') or {}).get('display_names', {})
+    return preferences.get('meeting_offline') or preferences.get('meeting_minutes') or {}
+
+
+def preferred_theme():
+    """preferences.meeting_offline.theme, one of minutes_html.THEMES; 暖白陶土 by default."""
+    theme = minutes_preferences().get('theme', 'warm')
+    if theme not in minutes_html.THEMES:
+        raise ValueError('preferences 中的 theme 只能是 ' + '、'.join(minutes_html.THEMES) + '。')
+    return theme
+
+
+def display_names():
+    """Optional preferences.meeting_offline.display_names, e.g. {"用户本人": "我"}; empty by default."""
+    names = minutes_preferences().get('display_names', {})
     if not isinstance(names, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not v.strip() for k, v in names.items()):
         raise ValueError('preferences 中的 display_names 必须是“已确认称呼 → 纪要显示名”的文本映射。')
     return names
@@ -407,8 +419,8 @@ def export(root):
     analysis = validate_analysis(root, read(root / 'analysis.json'))
     corrections = read(root / 'corrections.json')
     protected = sorted(protected_forms(state, corrections))
-    shown_names = display_names()
-    signature = digest({'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
+    shown_names = display_names(); theme = preferred_theme()
+    signature = digest({'theme': theme, 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
                         'display_names': shown_names,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
                         'sources': [(s['source_id'], s['transcript_sha256']) for s in state['sources']]})[:16]
@@ -481,7 +493,7 @@ def export(root):
                      'semantic_review': 'pending', 'version': signature})
         files['structured'] = str(path)
         if ready and structured:
-            document = minutes_html.from_workspace(state, sid, structured, corrections, protected, shown_names)
+            document = minutes_html.from_workspace(state, sid, structured, corrections, protected, shown_names, theme)
             path = directory / (sid + '-纪要.html')
             rendered = minutes_html.render(document)
             unchanged = path.exists() and path.read_text(encoding='utf-8') == rendered

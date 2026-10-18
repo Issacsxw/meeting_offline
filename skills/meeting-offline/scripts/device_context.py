@@ -87,12 +87,46 @@ def paths():
         raise ValueError('设备档案包含未经绑定的数据目录。')
     default_archive = base / '会议纪要' if sandbox() else Path.home() / 'Documents' / '会议纪要' / identity
     archive = Path(profile.get('archive_root') or default_archive).expanduser().resolve()
+    vault = obsidian_target(data_root / 'preferences.json', identity)
+    if vault:
+        archive = vault[0] / vault[1]
     return {'device_id': identity, 'sandbox': sandbox(), 'base': base, 'profile_dir': profile_dir,
+            'vault': vault[0] if vault else None,
             'profile': profile_path, 'data_root': data_root, 'legacy': legacy,
             'memory': data_root / 'memory.json', 'preferences': data_root / 'preferences.json',
             'meetings': data_root / 'meetings', 'jobs': data_root / 'transcription-jobs',
             'archive': archive,
             'keychain_service': profile.get('keychain_service') or 'codex-dashscope-api-key-' + identity}
+
+
+def read_preferences(path, identity):
+    try:
+        preferences = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    if preferences.get('device_id') not in (None, identity):
+        return {}
+    # Preferences written before the rename keep their settings under 'meeting_minutes'.
+    return preferences.get('meeting_offline') or preferences.get('meeting_minutes') or {}
+
+
+def obsidian_target(preferences_path, identity):
+    """(vault, folder) when the user chose an Obsidian vault that still exists; meetings are archived there."""
+    chosen = read_preferences(preferences_path, identity).get('obsidian') or {}
+    vault = Path(chosen.get('vault') or '').expanduser()
+    if not chosen.get('vault') or not (vault / '.obsidian').is_dir():
+        return None
+    folder = str(chosen.get('folder') or '会议纪要').strip('/\\') or '会议纪要'
+    return vault.resolve(), folder
+
+
+def minutes_preferences():
+    """This device's meeting_offline preferences (theme, layout, display names, Obsidian vault)."""
+    current = paths()
+    if current['preferences'].exists():
+        stored = json.loads(current['preferences'].read_text(encoding='utf-8'))
+        require_device(stored.get('device_id'), current['preferences'])
+    return read_preferences(current['preferences'], current['device_id'])
 
 
 def require_device(stored_id, path=None):

@@ -77,6 +77,22 @@ class LocalTests(unittest.TestCase):
         state = prepare_speakers.prepare(['1=' + result['result_path']])
         self.assertEqual([s['key'] for s in state['speakers']], ['1-A', '1-B'])
 
+    def test_hotwords_reach_funasr_and_change_the_cache_key(self):
+        words = Path(self.tmp.name) / 'hotwords.json'
+        words.write_text(json.dumps({'贝联': 2, '净草签': 2, 'Model Studio': 1}, ensure_ascii=False), encoding='utf-8')
+        loaded = local.load_hotwords(words)
+        self.assertEqual(loaded, ['净草签', '贝联'])  # terms with spaces cannot be passed to local engines
+        with self.fake_funasr():
+            plain = local.transcribe(self.audio, 'funasr')
+            biased = local.transcribe(self.audio, 'funasr', hotwords=loaded)
+        self.assertFalse(biased['reused'])
+        self.assertNotEqual(plain['result_path'], biased['result_path'])
+        self.assertEqual(biased['hotwords_used'], ['净草签', '贝联'])
+        self.assertEqual(FakeAutoModel.calls[-1][2]['hotword'], '净草签 贝联')
+        self.assertNotIn('hotword', FakeAutoModel.calls[1][2])
+        with self.assertRaisesRegex(local.LocalError, '热词'):
+            words.write_text('["贝联"]', encoding='utf-8'); local.load_hotwords(words)
+
     def test_speaker_count_is_part_of_the_cache_key(self):
         with self.fake_funasr():
             local.transcribe(self.audio, 'funasr')
@@ -100,6 +116,7 @@ class LocalTests(unittest.TestCase):
             def __init__(self, model, **kwargs): self.model = model
             def transcribe(self, samples, **kwargs):
                 assert kwargs['language'] == 'zh' and kwargs['word_timestamps'] and kwargs['vad_filter']
+                assert kwargs['hotwords'] == '贝联、净草签'
                 return iter(segments), None
         turn = lambda start, end, speaker: types.SimpleNamespace(start=start, end=end, speaker=speaker)
         class Result:
@@ -114,7 +131,7 @@ class LocalTests(unittest.TestCase):
         fw = module('faster_whisper', WhisperModel=Whisper, decode_audio=lambda path, sampling_rate: [0.0] * 16000)
         with mock.patch.dict(sys.modules, {'faster_whisper': fw, 'sherpa_onnx': sherpa}), \
                 mock.patch.object(local, 'model_file', side_effect=lambda url, folder, member=None: Path(folder) / 'm.onnx'):
-            result = local.transcribe(self.audio, 'whisper', model='small')
+            result = local.transcribe(self.audio, 'whisper', model='small', hotwords=['贝联', '净草签'])
         self.assertEqual([(s['speaker_id'], s['text']) for s in result['segments']], [(0, '先看预算。'), (1, '可以。')])
         self.assertEqual(result['model'], 'whisper:small')
 

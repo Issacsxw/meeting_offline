@@ -43,19 +43,30 @@ def png_for(html_path, out=None):
         return {'png': None, 'png_error': str(error)}
 
 
+def shown_name(speaker, display_names=None):
+    """How a speaker reads in the minutes: the confirmed name through the device's display_names, else the label."""
+    if speaker.get('accepted_unknown') or speaker.get('role_name') == UNKNOWN_ROLE:
+        return f'{UNKNOWN_ROLE}（{speaker["key"]}）'
+    if not speaker.get('role_confirmed'):
+        return speaker['key']
+    name = speaker.get('display_name') or (speaker.get('role_name') or speaker['key']).split('｜')[0]
+    return (display_names or {}).get(name, name)
+
+
 def from_workspace(state, sid, section, corrections, protected=(), display_names=None, theme='warm'):
     """Use assistant-authored concise prose; never infer owners or summaries here.
 
     display_names is the device preference mapping a confirmed name to how it reads in the minutes."""
     speakers = {s['key']: s for s in state['speakers'] if s['source_id'] == sid and not s.get('ignored_by_user')}
     display_names = display_names or {}
+    def confirmed(key):
+        speaker = speakers[key]
+        # Workspaces from before display_name stored the role title after '｜' in role_name.
+        return speaker.get('display_name') or (speaker.get('role_name') or key).split('｜')[0]
     def display(key):
         if not key:
             return '—'
-        speaker = speakers[key]
-        # Workspaces from before display_name stored the role title after '｜' in role_name.
-        name = speaker.get('display_name') or (speaker.get('role_name') or key).split('｜')[0]
-        return display_names.get(name, name)
+        return display_names.get(confirmed(key), confirmed(key))
     def corrected(text):
         return terms.correct_derived(text, sid, corrections, protected)
     brief = section.get('reader', {})
@@ -89,14 +100,14 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
         identity = speaker.get('identity_group') or key
         if identity not in identities:
             identities.add(identity)
-            people.append(display(key))
-    participants = '、'.join(people)
+            people.append({'name': confirmed(key), 'shown': display(key)})
+    participants = '、'.join(p['shown'] for p in people)
     if unknown:
         participants = (participants + '等' if participants else '') + str(len(people) + unknown) + '人'
     return {'schema_version': 2, 'source_id': sid, 'theme': theme,
         'topic': corrected(brief.get('topic') or section.get('title') or '会议纪要'),
         'meeting_time': str(section.get('meeting_time') or section.get('meeting_date') or ''),
-        'participants': participants,
+        'participants': participants, 'people': people,
         'summary': corrected(brief.get('summary', '')),
         'points': points, 'todos': todos}
 

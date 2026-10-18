@@ -19,6 +19,7 @@ import sys
 import tempfile
 import memory
 import minutes_html
+import minutes_md
 import terms
 
 
@@ -398,14 +399,7 @@ def public_state(root):
         'exports': read(root / 'exports/latest.json') if (root / 'exports/latest.json').exists() else None}
 
 
-def minutes_preferences():
-    """This device's meeting_offline preferences; written before the rename under 'meeting_minutes'."""
-    path = device_context.paths()['preferences']
-    if not path.exists():
-        return {}
-    preferences = read(path)
-    device_context.require_device(preferences.get('device_id'), path)
-    return preferences.get('meeting_offline') or preferences.get('meeting_minutes') or {}
+minutes_preferences = device_context.minutes_preferences
 
 
 def preferred_theme():
@@ -424,16 +418,27 @@ def display_names():
     return names
 
 
+def vault_links(state):
+    """Confirmed participant name -> Obsidian note title, when a vault is set and has a note for them."""
+    if not device_context.paths()['vault']:
+        return {}
+    import obsidian
+    names = {s.get('display_name') or (s.get('role_name') or '').split('｜')[0] for s in state['speakers'] if s.get('role_confirmed')}
+    return {name: note for name, note in obsidian.links().items() if name in names}
+
+
 def export(root):
     root = Path(root); state = read(root / 'state.json')
     assert_workspace(root, state)
     analysis = validate_analysis(root, read(root / 'analysis.json'))
     corrections = read(root / 'corrections.json')
     protected = sorted(protected_forms(state, corrections))
-    shown_names = display_names(); theme = preferred_theme()
+    shown_names = display_names(); theme = preferred_theme(); links = vault_links(state)
     signature = digest({'theme': theme, 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
-                        'display_names': shown_names,
+                        'display_names': shown_names, 'vault_links': links,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
+                        'md_renderer': file_digest(minutes_md.__file__),
+                        'audio': [Path(s['audio_path']).name if s.get('audio_path') else None for s in state['sources']],
                         'sources': [(s['source_id'], s['transcript_sha256']) for s in state['sources']]})[:16]
     directory = root / 'exports' / signature; directory.mkdir(parents=True, exist_ok=True)
     speakers = {s['key']: s for s in state['speakers']}
@@ -517,13 +522,25 @@ def export(root):
                 files['png'] = png['png']
             else:
                 files['png_error'] = png['png_error']
+            audio = Path(source['audio_path']).name if source.get('audio_path') else None
+            meeting_date = structured.get('meeting_date')
+            shown = {(type(s['source_speaker_id']).__name__, s['source_speaker_id']):
+                     minutes_html.shown_name(s, shown_names) for s in state['speakers'] if s['source_id'] == sid}
+            spoken = [{'speaker': shown.get((type(n.get('speaker_id')).__name__, n.get('speaker_id')), '未分离'),
+                       'start_ms': n['start_ms'], 'text': n['text']} for n in normalized]
+            for kind, suffix, text in (
+                    ('md', '会议纪要.md', minutes_md.minutes(document, meeting_date=meeting_date, links=links, audio=audio)),
+                    ('transcript_md', '逐字稿.md', minutes_md.transcript(document['topic'], spoken, meeting_date=meeting_date,
+                                                                         people=document['people'], links=links))):
+                path = directory / (sid + '-' + suffix)
+                path.write_text(text, encoding='utf-8'); files[kind] = str(path)
         output['files'][sid] = files
     write(root / 'exports/latest.json', output)
     return output
 
 
 def publish(root, source_ids=None, png_overrides=None):
-    """Record the checked HTML/PNG of the latest export for archive_meeting.py."""
+    """Record the checked HTML/PNG (and Markdown copies) of the latest export for archive_meeting.py."""
     root = Path(root)
     with locked(root):
         state = read(root / 'state.json'); latest = read(root / 'exports/latest.json')
@@ -542,8 +559,8 @@ def publish(root, source_ids=None, png_overrides=None):
             if not png:
                 raise ValueError('来源 ' + sid + ' 没有 PNG：' + exported.get('png_error', '')
                                  + ' 可在 HTML 中导出图片后用 --png ' + sid + '=路径 指定。')
-            files[sid] = {kind: {'path': str(Path(value).resolve()), 'sha256': file_digest(value)}
-                          for kind, value in (('html', exported['html']), ('png', png))}
+            documents = [('html', exported['html']), ('png', png)] + [(k, exported[k]) for k in ('md', 'transcript_md') if exported.get(k)]
+            files[sid] = {kind: {'path': str(Path(value).resolve()), 'sha256': file_digest(value)} for kind, value in documents}
         publication = read(root / 'publication.json') if (root / 'publication.json').exists() else {}
         publication.update(export_version=latest['version'], revision=state['revision'], published_at=now())
         publication.setdefault('files', {}).update(files)
@@ -570,6 +587,7 @@ def main():
         p = sub.add_parser(command); p.add_argument('--workspace', required=True)
     a = sub.add_parser('analysis'); a.add_argument('--workspace', required=True); a.add_argument('--file', required=True); a.add_argument('--revision', required=True, type=int)
     c = sub.add_parser('candidates'); c.add_argument('--workspace', required=True); c.add_argument('--file', required=True); c.add_argument('--revision', required=True, type=int)
+    ct = sub.add_parser('confirm-terms', help='一次应用用户在对话里确认的术语修正'); ct.add_argument('--workspace', required=True); ct.add_argument('--file', required=True); ct.add_argument('--revision', required=True, type=int)
     pub = sub.add_parser('publish'); pub.add_argument('--workspace', required=True); pub.add_argument('--source', action='append'); pub.add_argument('--png', action='append', help='SID=PATH，浏览器内手动导出的 PNG')
     h = sub.add_parser('hotwords'); h.add_argument('--workspace', required=True); h.add_argument('--term', action='append', required=True); h.add_argument('--out', required=True); h.add_argument('--weight', type=int, default=2)
     args = parser.parse_args()
@@ -580,6 +598,9 @@ def main():
         elif args.command == 'candidates':
             import term_review
             result = term_review.prepare(args.workspace, read(args.file), args.revision)
+        elif args.command == 'confirm-terms':
+            import term_review
+            result = term_review.confirm_batch(args.workspace, read(args.file), args.revision)
         elif args.command == 'publish': result = publish(args.workspace, args.source, {k: str(v) for k, v in pairs(args.png).items()})
         elif args.command == 'hotwords': result = hotwords(args.workspace, args.term, args.out, args.weight)
         else: result = export(Path(args.workspace))

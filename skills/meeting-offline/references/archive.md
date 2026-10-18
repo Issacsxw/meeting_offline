@@ -1,6 +1,6 @@
 # 录音与交付归档
 
-默认目录由 `device_context.py init` 的 `archive` 返回，新设备通常是 `~/Documents/会议纪要/<device-id>`。每场一个 `YYYY-MM-DD_会议主题` 文件夹，里面放移动后的原录音、`会议纪要.html`、`会议纪要.png`。原录音保留原文件名；转写、词库与角色档案仍保存在独立本地工作区，不混入对外交付文件。仅列出最近录音不会触发移动，选定要处理的文件后才执行。
+默认目录由 `device_context.py init` 的 `archive` 返回，新设备通常是 `~/Documents/会议纪要/<device-id>`；设置了 Obsidian 库时是库里的 `会议纪要` 文件夹（见 [Obsidian 库](obsidian.md)）。每场一个 `YYYY-MM-DD_会议主题` 文件夹，里面放移动后的原录音、`会议纪要.html`、`会议纪要.png`、`会议纪要.md` 和 `逐字稿.md`。原录音保留原文件名；转写、词库与角色档案仍保存在独立本地工作区，不混入对外交付文件。仅列出最近录音不会触发移动，选定要处理的文件后才执行。
 
 ## 选定录音后
 
@@ -23,7 +23,7 @@ python3 <skill-dir>/scripts/archive_meeting.py \
   --workspace /path/to/workspace --source 4
 ```
 
-脚本核对发布版本、HTML/PNG 校验值和录音校验值，再归档并记录新 `audio_path`、原路径及修订；现有复核服务按新路径回听。检查音频 Range 请求、文件夹内文件及校验值后交付。
+脚本核对发布版本、HTML/PNG/Markdown 校验值和录音校验值，再归档并记录新 `audio_path`、原路径及修订；现有复核服务按新路径回听。检查音频 Range 请求、文件夹内文件及校验值后交付。
 
 独立模式可补齐同一录音的交付物：
 
@@ -33,4 +33,4 @@ python3 <skill-dir>/scripts/archive_meeting.py \
   --html /path/to/已核对的纪要.html --png /path/to/对应纪要.png
 ```
 
-可用 `--root /path/to/会议纪要` 覆盖归档根目录。同一音频按校验值复用目录；不同音频的同名会议加后缀，不覆盖原文件。隐藏的 `.archive-index.json` 和 `.archive.json` 用于续做、查验和恢复路径。已有归档 HTML/PNG 若被用户修改，保留原稿，新生成稿另存为 `会议纪要-更新版-校验值前缀`。再次执行前沿用工作区/脚本返回的新路径，不继续使用已移动的旧路径。
+可用 `--root /path/to/会议纪要` 覆盖归档根目录。同一音频按校验值复用目录；不同音频的同名会议加后缀，不覆盖原文件。隐藏的 `.archive-index.json`（Obsidian 库里是每台设备一份 `.archive-index-<设备>.json`）和 `.archive.json` 用于续做、查验和恢复路径。已归档的 HTML、PNG 或 Markdown 若被用户修改，保留原稿，新生成稿另存为 `会议纪要-更新版-校验值前缀`（逐字稿为 `逐字稿-更新版-…`）。再次执行前沿用工作区/脚本返回的新路径，不继续使用已移动的旧路径。

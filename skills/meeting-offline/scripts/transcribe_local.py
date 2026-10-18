@@ -68,8 +68,26 @@ def file_digest(path):
     return h.hexdigest()
 
 
-def cache_path(audio_sha, engine, model, speakers=None):
-    name = f'{audio_sha[:24]}-{engine}-{model}-{speakers or "auto"}.json'
+def load_hotwords(path):
+    """Same file as transcribe_qwen.py --hotwords: {"标准词": weight}. Local engines use the words, not weights."""
+    if not path:
+        return []
+    try:
+        words = json.loads(Path(path).expanduser().read_text(encoding='utf-8'))
+    except (OSError, ValueError) as error:
+        raise LocalError('读不了热词文件：' + str(path)) from error
+    if not isinstance(words, dict) or any(not isinstance(w, str) for w in words):
+        raise LocalError('热词文件必须是 {"标准词": 权重} 形式的 JSON 对象。')
+    kept = sorted({w.strip() for w in words if w.strip() and not any(c.isspace() for c in w.strip())})
+    dropped = len([w for w in words if w.strip()]) - len(kept)
+    if dropped:
+        note(f'有 {dropped} 个热词包含空格，本地引擎无法使用，已跳过。')
+    return kept[:1000]
+
+
+def cache_path(audio_sha, engine, model, speakers=None, hotwords=()):
+    tag = hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else 'nohw'
+    name = f'{audio_sha[:24]}-{engine}-{model}-{speakers or "auto"}-{tag}.json'
     return device_context.paths()['jobs'] / 'local' / name
 
 
@@ -87,7 +105,7 @@ def to_wav(audio, folder):
     return target
 
 
-def run_funasr(audio, speakers=None, device='auto'):
+def run_funasr(audio, speakers=None, device='auto', hotwords=()):
     from funasr import AutoModel
     if device == 'auto':
         import torch
@@ -95,6 +113,8 @@ def run_funasr(audio, speakers=None, device='auto'):
     model = AutoModel(model='paraformer-zh', vad_model='fsmn-vad', punc_model='ct-punc', spk_model='cam++',
                       device=device, disable_update=True)
     options = {'batch_size_s': 300}
+    if hotwords:
+        options['hotword'] = ' '.join(hotwords)  # paraformer-zh is SeACo-Paraformer, which biases toward these
     if speakers:
         options['preset_spk_num'] = speakers
     with tempfile.TemporaryDirectory(prefix='meeting-local-') as tmp:
@@ -159,12 +179,13 @@ def assign_speakers(pieces, turns):
     return [s for s in segments if s['text']]
 
 
-def run_whisper(audio, model='small', speakers=None, device='auto'):
+def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=()):
     from faster_whisper import WhisperModel, decode_audio
     import sherpa_onnx
     samples = decode_audio(str(audio), sampling_rate=16000)
     whisper = WhisperModel(model, device=device, compute_type='default')
     parts, _ = whisper.transcribe(samples, language='zh', initial_prompt=WHISPER_PROMPT, vad_filter=True,
+                                  hotwords='、'.join(hotwords) or None,
                                   word_timestamps=True)
     pieces = []
     for part in parts:
@@ -185,7 +206,7 @@ def run_whisper(audio, model='small', speakers=None, device='auto'):
     return model, assign_speakers(pieces, turns)
 
 
-def transcribe(audio, engine, model=None, speakers=None, device='auto', force=False):
+def transcribe(audio, engine, model=None, speakers=None, device='auto', force=False, hotwords=()):
     audio = Path(audio).expanduser().resolve()
     if not audio.is_file():
         raise LocalError('录音不存在：' + str(audio))
@@ -195,14 +216,16 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
                          + check()['engines'][engine]['install'])
     model = model or ('paraformer-zh+cam++' if engine == 'funasr' else 'small')
     sha = file_digest(audio)
-    cached = cache_path(sha, engine, model, speakers)
+    hotwords = list(hotwords)
+    cached = cache_path(sha, engine, model, speakers, hotwords)
     if cached.exists() and not force:
         result = json.loads(cached.read_text(encoding='utf-8'))
         device_context.require_device(result.get('device_id'), cached)
         return {**result, 'result_path': str(cached), 'reused': True}
     started = datetime.now(timezone.utc)
     note(f'开始本地识别（{ENGINES[engine]["name"]}）。首次运行会先下载模型；录音不会离开这台电脑。')
-    used, segments = run_funasr(audio, speakers, device) if engine == 'funasr' else run_whisper(audio, model, speakers, device)
+    used, segments = (run_funasr(audio, speakers, device, hotwords) if engine == 'funasr'
+                      else run_whisper(audio, model, speakers, device, hotwords))
     if not segments:
         raise LocalError('没有识别出任何语音；请确认录音里有人说话。')
     try:
@@ -210,7 +233,7 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         length = segments[-1]['end_ms'] / 1000
     result = {'route': 'local', 'engine': engine, 'model': f'{engine}:{used}', 'device_id': device_context.device_id(),
-              'audio_sha256': sha, 'duration_seconds': round(length, 3), 'speaker_separation': 'voice',
+              'audio_sha256': sha, 'duration_seconds': round(length, 3), 'speaker_separation': 'voice', 'hotwords_used': hotwords,
               'started_at': started.isoformat(), 'finished_at': datetime.now(timezone.utc).isoformat(),
               'text': ''.join(s['text'] for s in segments), 'segments': segments}
     cached.parent.mkdir(parents=True, exist_ok=True)
@@ -227,6 +250,7 @@ def main():
     parser.add_argument('--speakers', type=int, help='已知的发言人数，提高区分准确度（可选）')
     parser.add_argument('--device', default='auto', help='auto、cpu 或 cuda')
     parser.add_argument('--hf-mirror', action='store_true', help='从 hf-mirror.com 下载 whisper 模型（国内网络）')
+    parser.add_argument('--hotwords', help='已确认标准词的 JSON（与 transcribe_qwen.py --hotwords 相同格式）')
     parser.add_argument('--force', action='store_true', help='忽略本机缓存，重新识别')
     args = parser.parse_args()
     if args.check:
@@ -240,10 +264,12 @@ def main():
     if args.hf_mirror:
         os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
     try:
-        result = transcribe(args.audio, args.engine, args.model, args.speakers, args.device, args.force)
+        result = transcribe(args.audio, args.engine, args.model, args.speakers, args.device, args.force,
+                            load_hotwords(args.hotwords))
     except (LocalError, ValueError, OSError, subprocess.SubprocessError) as error:
         parser.exit(2, str(error) + '\n')
     summary = {k: result[k] for k in ('engine', 'model', 'duration_seconds', 'reused', 'result_path')}
+    summary['hotwords_used'] = len(result.get('hotwords_used', []))
     summary.update(speakers=len({s['speaker_id'] for s in result['segments']}), segments=len(result['segments']))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

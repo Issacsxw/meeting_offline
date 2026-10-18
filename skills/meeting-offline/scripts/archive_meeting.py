@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move a selected local recording and collect its local HTML/PNG deliverables."""
+"""Move a selected local recording and collect its deliverables (HTML, PNG, Markdown) into one folder."""
 from __future__ import annotations
 import argparse
 from contextlib import contextmanager
@@ -14,6 +14,8 @@ import workspace as w
 
 
 DEFAULT_ROOT = device_context.paths()['archive']
+# Archived names per deliverable; Markdown links in 会议纪要.md point at these.
+NAMES = {'html': '会议纪要.html', 'png': '会议纪要.png', 'md': '会议纪要.md', 'transcript_md': '逐字稿.md'}
 
 
 def safe_name(value):
@@ -50,8 +52,16 @@ def managed_folder(root, name):
     return path
 
 
+def index_file(root):
+    """A shared folder (an Obsidian vault synced between computers) keeps one index per device."""
+    vault = device_context.paths()['vault']
+    if vault and root.is_relative_to(vault):
+        return root / f'.archive-index-{device_context.device_id()[:12]}.json'
+    return root / '.archive-index.json'
+
+
 def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
-            archive_date=None, html=None, png=None, expected_hash=None):
+            archive_date=None, html=None, png=None, expected_hash=None, extra=None):
     audio = Path(audio).expanduser().absolute()
     if audio.is_symlink() or not audio.is_file():
         raise ValueError('录音必须是存在的普通文件：' + str(audio))
@@ -61,7 +71,10 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
     if bool(html) != bool(png):
         raise ValueError('HTML 与 PNG 必须同时提供。')
     documents = {}
-    for kind, value in (('html', html), ('png', png)):
+    extra = extra or {}
+    if set(extra) - set(NAMES) or (extra and not html):
+        raise ValueError('附加文件只能是 ' + '、'.join(k for k in NAMES if k not in ('html', 'png')) + '，且需和 HTML/PNG 一起归档。')
+    for kind, value in [('html', html), ('png', png), *extra.items()]:
         if value:
             path = Path(value).expanduser().resolve(strict=True)
             documents[kind] = (path, w.file_digest(path))
@@ -70,7 +83,7 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         raise ValueError('录音校验值与工作区记录不一致；未移动文件。')
     root = Path(root).expanduser().resolve()
     with archive_lock(root):
-        index_path = root / '.archive-index.json'
+        index_path = index_file(root)
         index = w.read(index_path) if index_path.exists() else {'schema_version': 1, 'device_id': device_context.device_id(), 'recordings': {}}
         device_context.require_device(index.get('device_id'), root)
         index.setdefault('device_id', device_context.device_id())
@@ -112,12 +125,12 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         if w.file_digest(destination) != audio_hash:
             raise ValueError('归档录音校验失败，请检查：' + str(destination))
         for kind, (source, checksum) in documents.items():
-            target = target_folder / ('会议纪要.' + kind)
+            target = target_folder / NAMES[kind]
             last = manifest['files'].get(kind, {})
             if target.exists() and w.file_digest(target) != checksum:
-                # Preserve edits made in the archived HTML or image.
+                # Preserve edits made in the archived files (HTML, image, or notes edited in Obsidian).
                 if w.file_digest(target) != last.get('generated_sha256'):
-                    target = target_folder / f'会议纪要-更新版-{checksum[:8]}.{kind}'
+                    target = target.with_name(f'{target.stem}-更新版-{checksum[:8]}{target.suffix}')
                     if target.exists() and w.file_digest(target) != checksum:
                         target = unique_path(target, checksum)
             if not target.exists() or w.file_digest(target) != checksum:
@@ -141,14 +154,15 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
         if publication['export_version'] != latest['version'] or latest['revision'] != state['revision']:
             raise ValueError('纪要发布版本已过期；先生成并核对当前 HTML 和 PNG。')
         documents = publication['files'][source_id]
-        for kind in ('html', 'png'):
+        for kind in documents:
             if w.file_digest(documents[kind]['path']) != documents[kind]['sha256']:
                 raise ValueError('发布文件已改变；请先核对 HTML/PNG 并更新 publication.json。')
         result = collect(source['audio_path'], root=archive_root,
                          topic=analysis.get('reader', {}).get('topic') or analysis.get('title') or source.get('title'),
                          meeting_date=analysis.get('meeting_date'), archive_date=archive_date,
                          expected_hash=source.get('audio_sha256'),
-                         html=documents['html']['path'], png=documents['png']['path'])
+                         html=documents['html']['path'], png=documents['png']['path'],
+                         extra={k: v['path'] for k, v in documents.items() if k not in ('html', 'png')})
         if source.get('audio_path') != result['audio'] or source.get('archive_dir') != result['folder']:
             source.setdefault('original_audio_path', source['audio_path'])
             source.update(audio_path=result['audio'], archive_dir=result['folder'])

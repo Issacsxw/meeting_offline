@@ -1,6 +1,8 @@
 """Human terminology choices with immutable source evidence. No network access."""
+from contextlib import nullcontext
 from copy import deepcopy
 from file_lock import locked_file
+import json
 import os
 from pathlib import Path
 import memory
@@ -97,95 +99,164 @@ def save(root, payload, expected):
     with w.locked(root):
         state = w.read(root / 'state.json')
         w.check_revision(state, expected)
-        card = next((c for c in cards(root, state) if c['id'] == payload.get('candidate_id')), None)
-        if card is None:
-            raise ValueError('找不到这张术语卡片，请刷新。')
-        decision = payload.get('decision')
-        if decision not in ('confirm', 'different', 'defer'):
-            raise ValueError('请选择标准写法、不同含义或暂不确定。')
-        record = {'decision': decision, 'at': w.now(), 'actor': 'user'}
-        if decision != 'confirm':
-            # These are review outcomes, never confirmed spellings or glossary entries.
-            state.setdefault('term_reviews', {})[card['id']] = record
-            return w.commit(root, state, {'kind': 'term_review_' + decision, 'candidate_id': card['id'], 'actor': 'user'})
-        canonical = payload.get('canonical', '')
-        scope = payload.get('scope', '')
-        if not isinstance(canonical, str) or not canonical.strip() or len(canonical) > 100:
-            raise ValueError('请选择或填写标准写法（不超过100字）。')
-        if not isinstance(scope, str) or not scope.strip() or len(scope) > 200:
-            raise ValueError('请填写适用业务或项目范围（不超过200字）。')
-        canonical, scope = canonical.strip(), scope.strip()
-        selections = payload.get('selections')
-        if not isinstance(selections, list) or not selections:
-            raise ValueError('请勾选至少一段原文作为确认依据。')
-        variants = {v['form']: v for v in card['variants']}
-        seen = set()
-        planned = []
-        aliases = []
-        evidence = []
-        for selection in selections:
-            form = selection.get('heard')
-            if form not in variants or form in seen:
-                raise ValueError('写法无效或重复，请刷新卡片。')
-            seen.add(form)
-            indices = selection.get('segment_indices')
-            available = {o['index'] for o in variants[form]['occurrences'] if o['available']}
-            original_indices = {o['index'] for o in variants[form]['occurrences']}
-            if not isinstance(indices, list) or not indices or any(type(i) is not int for i in indices) or len(set(indices)) != len(indices) or not set(indices) <= available:
-                raise ValueError('原文选择已变化或无效，请刷新后重新勾选。')
-            learn = selection.get('learn_alias', False)
-            if type(learn) is not bool or (learn and set(indices) != original_indices):
-                raise ValueError('只选部分段落时不能将整种写法记作别名，请取消“记住对应关系”。')
-            evidence.extend({'source_id': card['source_id'], 'segment_index': i, 'heard': form} for i in sorted(indices))
-            if form != canonical:
-                if learn:
-                    aliases.append(form)
-                planned.append({'id': w.digest([card['id'], form, canonical, state['revision']])[:16],
-                    'candidate_id': card['id'], 'source_id': card['source_id'], 'heard': form,
-                    'canonical': canonical, 'scope': scope, 'segment_indices': sorted(indices),
-                    'active': True, 'confirmed_at': w.now(),
-                    # Partial choices do not authorize changes throughout derived prose.
-                    'apply_to_derived': set(indices) == original_indices, 'learned_alias': learn})
-        # Validate sources before changing any persistent memory.
-        source = next(s for s in state['sources'] if s['source_id'] == card['source_id'])
-        if w.file_digest(source['path']) != source['transcript_sha256']:
-            raise ValueError('原始转写已变化，请先恢复来源快照。')
-        w.validate_analysis(root, w.read(root / 'analysis.json'))
+        return w.commit(root, state, apply_choice(root, state, payload))
+
+
+def confirm_batch(root, choices, expected):
+    """Apply a list of choices the user approved in one reply ("都对", "第2个不改") as a single revision.
+
+    Each choice is {candidate_id, decision, canonical?, scope?, segments?}; segments is "all" (default)
+    or segment indices. If any choice fails, corrections and the term memory are restored."""
+    root = Path(root)
+    if not isinstance(choices, list) or not choices:
+        raise ValueError('请提供至少一条确认结果。')
+    with w.locked(root):
+        state = w.read(root / 'state.json')
+        w.check_revision(state, expected)
         store_path = w.memory_path(state)
-        store_path.parent.mkdir(parents=True, exist_ok=True)
-        with locked_file(str(store_path) + '.lock'):
-            store = memory.read_store(store_path)
-            active = [t for t in store['terms'] if t.get('active', True) and t['scope'] == scope]
-            for term in active:
-                if term['canonical'] == canonical:
-                    continue
-                # Check proposed correspondences too, even if not learning a reusable alias.
-                old_forms = {c['heard'] for c in planned}
-                if canonical in term.get('aliases', []) or old_forms & ({term['canonical']} | set(term.get('aliases', []))):
-                    raise ValueError('相同范围已有不同的术语对应关系，请细化业务范围，保留歧义。')
-            prior = next((t for t in active if t['canonical'] == canonical), None)
-            term = {**(prior or {}), 'id': prior['id'] if prior else 'term-' + w.digest([scope, canonical])[:16],
-                'canonical': canonical, 'scope': scope, 'category': card['category'],
-                'aliases': sorted(set((prior or {}).get('aliases', []) + aliases)),
-                'confirmation': '用户在本地术语选择卡片查看原文后明确确认标准写法及勾选范围。',
-                'confirmed_by_user': True, 'active': True, 'updated_at': w.now(),
-                'created_at': prior['created_at'] if prior else w.now(),
-                'revision': prior.get('revision', 1) + 1 if prior else 1,
-                'review_refs': (prior or {}).get('review_refs', []) + [{
-                    'meeting_id': root.name, 'candidate_id': card['id'], 'at': w.now(),
-                    'evidence': evidence, 'aliases_confirmed': aliases}]}
-            memory.validate_entry('term', term)
-            if prior:
-                store['history'].append({'kind': 'term', 'replaced_at': w.now(), 'previous': deepcopy(prior)})
-            store['terms'] = [t for t in store['terms'] if t['id'] != term['id']] + [term]
-            memory.atomic_write(store_path, store)
-        corrections = w.read(root / 'corrections.json')
-        for correction in planned:
-            correction['term_id'] = term['id']
-        corrections.extend(planned)
-        w.write(root / 'corrections.json', corrections)
-        record.update(canonical=canonical, scope=scope, term_id=term['id'], selections=selections,
-                      corrected_segments=sum(len(c['segment_indices']) for c in planned))
+        saved = {path: path.read_bytes() if path.exists() else None for path in (root / 'corrections.json', store_path)}
+        changes = []
+        try:
+            for n, choice in enumerate(choices):
+                try:
+                    changes.append(apply_choice(root, state, expand(root, state, choice), via='batch'))
+                except ValueError as error:
+                    raise ValueError(f'第 {n + 1} 条（{choice.get("candidate_id") if isinstance(choice, dict) else choice}）：{error}') from None
+        except BaseException:
+            for path, content in saved.items():
+                if content is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    with locked_file(str(path) + '.lock') if path == store_path else nullcontext():
+                        memory.atomic_write(path, json.loads(content))
+            raise
+        return w.commit(root, state, {'kind': 'term_batch_reviewed', 'actor': 'user',
+                                     'candidate_ids': [c['candidate_id'] for c in changes]})
+
+
+def expand(root, state, choice):
+    """Turn a short batch choice into the payload save() takes; "all" selects every remaining occurrence."""
+    if not isinstance(choice, dict):
+        raise ValueError('每条确认结果必须是对象。')
+    card = next((c for c in cards(root, state) if c['id'] == choice.get('candidate_id')), None)
+    if card is None:
+        raise ValueError('找不到这张术语卡片，请重新生成候选。')
+    decision = choice.get('decision', 'confirm')
+    if decision != 'confirm':
+        return {'candidate_id': card['id'], 'decision': decision}
+    suggested = card['options'][0]['text'] if len(card['options']) == 1 else None
+    canonical = choice.get('canonical') or suggested
+    segments = choice.get('segments', 'all')
+    if segments != 'all' and (not isinstance(segments, list) or any(type(i) is not int for i in segments)):
+        raise ValueError('segments 只能是 "all" 或段落编号列表。')
+    selections = []
+    for variant in card['variants']:
+        available = [o['index'] for o in variant['occurrences'] if o['available']]
+        chosen = available if segments == 'all' else [i for i in available if i in segments]
+        if chosen and variant['form'] != canonical:
+            everything = len(chosen) == len(variant['occurrences'])
+            selections.append({'heard': variant['form'], 'segment_indices': chosen,
+                               'learn_alias': choice.get('learn_alias', everything) and everything})
+    if not selections:
+        raise ValueError('没有可修正的段落（可能已经改过了）。')
+    return {'candidate_id': card['id'], 'decision': 'confirm', 'canonical': canonical,
+            'scope': choice.get('scope') or card['scope'], 'selections': selections}
+
+
+CONFIRMATIONS = {'card': '用户在本地术语选择卡片查看原文后明确确认标准写法及勾选范围。',
+                 'batch': '用户在对话中查看批量修正清单（含原文片段）后明确确认。'}
+
+
+def apply_choice(root, state, payload, via='card'):
+    """Validate and apply one choice to corrections, memory and state; the caller commits the revision."""
+    card = next((c for c in cards(root, state) if c['id'] == payload.get('candidate_id')), None)
+    if card is None:
+        raise ValueError('找不到这张术语卡片，请刷新。')
+    decision = payload.get('decision')
+    if decision not in ('confirm', 'different', 'defer'):
+        raise ValueError('请选择标准写法、不同含义或暂不确定。')
+    record = {'decision': decision, 'at': w.now(), 'actor': 'user'}
+    if decision != 'confirm':
+        # These are review outcomes, never confirmed spellings or glossary entries.
         state.setdefault('term_reviews', {})[card['id']] = record
-        return w.commit(root, state, {'kind': 'term_choice_confirmed', 'candidate_id': card['id'],
-                                     'term_id': term['id'], 'actor': 'user'})
+        return {'kind': 'term_review_' + decision, 'candidate_id': card['id'], 'actor': 'user'}
+    canonical = payload.get('canonical', '')
+    scope = payload.get('scope', '')
+    if not isinstance(canonical, str) or not canonical.strip() or len(canonical) > 100:
+        raise ValueError('请选择或填写标准写法（不超过100字）。')
+    if not isinstance(scope, str) or not scope.strip() or len(scope) > 200:
+        raise ValueError('请填写适用业务或项目范围（不超过200字）。')
+    canonical, scope = canonical.strip(), scope.strip()
+    selections = payload.get('selections')
+    if not isinstance(selections, list) or not selections:
+        raise ValueError('请勾选至少一段原文作为确认依据。')
+    variants = {v['form']: v for v in card['variants']}
+    seen = set()
+    planned = []
+    aliases = []
+    evidence = []
+    for selection in selections:
+        form = selection.get('heard')
+        if form not in variants or form in seen:
+            raise ValueError('写法无效或重复，请刷新卡片。')
+        seen.add(form)
+        indices = selection.get('segment_indices')
+        available = {o['index'] for o in variants[form]['occurrences'] if o['available']}
+        original_indices = {o['index'] for o in variants[form]['occurrences']}
+        if not isinstance(indices, list) or not indices or any(type(i) is not int for i in indices) or len(set(indices)) != len(indices) or not set(indices) <= available:
+            raise ValueError('原文选择已变化或无效，请刷新后重新勾选。')
+        learn = selection.get('learn_alias', False)
+        if type(learn) is not bool or (learn and set(indices) != original_indices):
+            raise ValueError('只选部分段落时不能将整种写法记作别名，请取消“记住对应关系”。')
+        evidence.extend({'source_id': card['source_id'], 'segment_index': i, 'heard': form} for i in sorted(indices))
+        if form != canonical:
+            if learn:
+                aliases.append(form)
+            planned.append({'id': w.digest([card['id'], form, canonical, state['revision']])[:16],
+                'candidate_id': card['id'], 'source_id': card['source_id'], 'heard': form,
+                'canonical': canonical, 'scope': scope, 'segment_indices': sorted(indices),
+                'active': True, 'confirmed_at': w.now(),
+                # Partial choices do not authorize changes throughout derived prose.
+                'apply_to_derived': set(indices) == original_indices, 'learned_alias': learn})
+    # Validate sources before changing any persistent memory.
+    source = next(s for s in state['sources'] if s['source_id'] == card['source_id'])
+    if w.file_digest(source['path']) != source['transcript_sha256']:
+        raise ValueError('原始转写已变化，请先恢复来源快照。')
+    w.validate_analysis(root, w.read(root / 'analysis.json'))
+    store_path = w.memory_path(state)
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    with locked_file(str(store_path) + '.lock'):
+        store = memory.read_store(store_path)
+        active = [t for t in store['terms'] if t.get('active', True) and t['scope'] == scope]
+        for term in active:
+            if term['canonical'] == canonical:
+                continue
+            # Check proposed correspondences too, even if not learning a reusable alias.
+            old_forms = {c['heard'] for c in planned}
+            if canonical in term.get('aliases', []) or old_forms & ({term['canonical']} | set(term.get('aliases', []))):
+                raise ValueError('相同范围已有不同的术语对应关系，请细化业务范围，保留歧义。')
+        prior = next((t for t in active if t['canonical'] == canonical), None)
+        term = {**(prior or {}), 'id': prior['id'] if prior else 'term-' + w.digest([scope, canonical])[:16],
+            'canonical': canonical, 'scope': scope, 'category': card['category'],
+            'aliases': sorted(set((prior or {}).get('aliases', []) + aliases)),
+            'confirmation': CONFIRMATIONS[via],
+            'confirmed_by_user': True, 'active': True, 'updated_at': w.now(),
+            'created_at': prior['created_at'] if prior else w.now(),
+            'revision': prior.get('revision', 1) + 1 if prior else 1,
+            'review_refs': (prior or {}).get('review_refs', []) + [{
+                'meeting_id': root.name, 'candidate_id': card['id'], 'at': w.now(),
+                'evidence': evidence, 'aliases_confirmed': aliases}]}
+        memory.validate_entry('term', term)
+        if prior:
+            store['history'].append({'kind': 'term', 'replaced_at': w.now(), 'previous': deepcopy(prior)})
+        store['terms'] = [t for t in store['terms'] if t['id'] != term['id']] + [term]
+        memory.atomic_write(store_path, store)
+    corrections = w.read(root / 'corrections.json')
+    for correction in planned:
+        correction['term_id'] = term['id']
+    corrections.extend(planned)
+    w.write(root / 'corrections.json', corrections)
+    record.update(canonical=canonical, scope=scope, term_id=term['id'], selections=selections,
+                  corrected_segments=sum(len(c['segment_indices']) for c in planned))
+    state.setdefault('term_reviews', {})[card['id']] = record
+    return {'kind': 'term_choice_confirmed', 'candidate_id': card['id'], 'term_id': term['id'], 'actor': 'user'}

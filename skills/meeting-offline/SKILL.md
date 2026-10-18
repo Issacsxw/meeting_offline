@@ -16,9 +16,9 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 1. **定来源并归档录音**：用户给出录音路径，或用语音备忘录 / `scripts/find_recordings.py`（iCloud 云盘、下载、桌面）列出最近录音让用户选定；选定后按 [归档](references/archive.md) 将原文件移动到 `archive/日期_主题/`；只列举时不移动。已有转写与工作区优先复用，避免重复上传计费。
 2. **转写**：有阿里云 Key 时按 [转写流程](references/transcription.md) 用 Qwen；没有 Key 或用户不想上传时，按 [转写方案](references/transcription-options.md) 说明本地 FunASR、本地 Whisper 和申请 Key 的差别，由用户选择，安装本地引擎前先征得同意。同一段录音已有的转写结果直接复用；Apple 语音备忘录走只读 MCP（[配置](references/voice-memos-setup.md)）。
 3. **角色认领**：按 [角色认领](references/roles.md) 给每位说话人出观点卡片（核心观点 + 带时间戳的原话），一条消息收集映射；本地库有候选时预填并标“待确认”。
-4. **术语复核**：只对影响理解的词出选择卡片，规则见 [本地积累](references/memory.md)；需要回听或页面操作时用 [本地复核](references/local-review.md)。不影响理解的未确认词不阻塞纪要。
+4. **术语复核**：只对影响理解的词出选择卡片，规则见 [本地积累](references/memory.md)；需要回听或页面操作时用 [本地复核](references/local-review.md)。设置了 Obsidian 库时，先用库里的写法找出疑似识别错误，列成一份清单让用户一次确认（[Obsidian 库](references/obsidian.md)）。不影响理解的未确认词不阻塞纪要。
 5. **写纪要**：角色确定（或用户明确接受部分未知）后直接写，不再问“是否开始”。内容要求见下文，写入与生成见 [HTML 与 PNG](references/publish-html.md)。
-6. **交付与归档**：脚本同时生成 HTML 和 PNG；打开 PNG 检查后 `workspace.py publish`，再归档到会议文件夹。
+6. **交付与归档**：脚本同时生成 HTML、PNG 和 Markdown（`会议纪要.md`、`逐字稿.md`）；打开 PNG 检查后 `workspace.py publish`，再归档到会议文件夹（设置了 Obsidian 库时就在库里）。
 7. **积累**：本轮用户确认的角色与术语在同一轮写入本地库，无需再问。
 
 **短会议快速通道**：实质发言人不超过 2 位、只有一个文件、待判断术语不超过 2 个时，第 3–5 步合成一条消息：精简卡片 + 认领/术语问题 + 用编号代替姓名的纪要草稿。用户一回复就定稿交付。条件和边界见 [角色认领](references/roles.md#短会议快速通道)。
@@ -64,6 +64,7 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 | --- | --- |
 | 安装到各工具、云端沙箱、换电脑、设备 ID | [portability.md](references/portability.md) |
 | 移动录音、归档交付物 | [archive.md](references/archive.md) |
+| 用户用 Obsidian：归档进库、用库纠正识别错误 | [obsidian.md](references/obsidian.md) |
 | 找录音、转写 | [transcription.md](references/transcription.md)、[voice-memos-setup.md](references/voice-memos-setup.md) |
 | 没有 API Key、选本地识别、申请 Key | [transcription-options.md](references/transcription-options.md) |
 | 观点卡片、角色映射、跨轮状态 | [roles.md](references/roles.md) |

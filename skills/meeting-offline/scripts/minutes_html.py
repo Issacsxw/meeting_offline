@@ -78,9 +78,9 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     def display(key):
         if not key:
             return '—'
-        return display_names.get(confirmed(key), confirmed(key))
+        return shown_name(speakers[key], display_names)
     def corrected(text):
-        return terms.correct_derived(text, sid, corrections, protected)
+        return text if section.get('automatic_content') else terms.correct_derived(text, sid, corrections, protected)
     brief = section.get('reader', {})
     points = []
     if brief.get('points'):
@@ -95,6 +95,11 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
         for item in section.get('decisions', []):
             label = {'direction': '推进方向', 'proposal': '建议', 'decided': '已决定', 'open': '待定'}[item['status']]
             points.append({'title': label, 'text': corrected(item['text'])})
+    if section.get('automatic_content'):
+        for item in section.get('decisions', []):
+            points.append({'title': '议题与决定', 'text': corrected(item['text']), 'status': item['status']})
+        for item in section.get('open_questions', []):
+            points.append({'title': '待明确事项', 'text': corrected(item['text']), 'status': 'open'})
     overrides = {item['action_index']: item for item in brief.get('todos', [])}
     todos = []
     for i, action in enumerate(section.get('actions', [])):
@@ -106,6 +111,7 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     identities = set()
     unknown = 0
     for key, speaker in speakers.items():
+        if not speaker.get('role_confirmed'): continue
         if speaker.get('diarization_unassigned') and not speaker.get('identity_group'):
             continue  # unattributed speech is not a participant
         if speaker.get('accepted_unknown') or speaker.get('role_name') == UNKNOWN_ROLE:

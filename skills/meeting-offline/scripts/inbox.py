@@ -156,7 +156,7 @@ def process(item, config):
                 coverage=result['speaker_coverage'], finished_at=now())
     extra = {'voice': f'{result["speakers_detected"]} 位发言人', 'partial': f'只分出 {round(result["speaker_coverage"] * 100)}% 的说话人',
              'none': '没有分出说话人'}[result['speaker_separation']]
-    notify('会议录音已转写', f'{audio.name} 已转写好（{extra}）。回到 AI 工具说“整理最新的会议录音”，确认谁是谁。')
+    notify('会议录音已转写', f'{audio.name} 已转写好（{extra}）。回到 AI 工具说“整理最新的会议录音”，由它检查真正影响结论的疑点。')
 
 
 def arrival(key):
@@ -257,9 +257,23 @@ def one_pass(folder, config, clock):
 def status(queue=None):
     queue = queue or load_queue()
     items = sorted(queue['items'].values(), key=lambda i: i.get('first_seen', ''), reverse=True)
-    for item in items:  # the meeting is finished once its minutes are published in the workspace
-        if item.get('status') == 'ready' and item.get('workspace') and (Path(item['workspace']) / 'publication.json').exists():
-            item['status'] = 'done'
+    for item in items:
+        record = None
+        if item.get('workspace') and (Path(item['workspace']) / 'auto-minutes').is_dir():
+            import auto_minutes
+            try:
+                record = auto_minutes.status(item['workspace'])
+                item.update(pipeline_state=record['pipeline_state'], content_state=record['content_state'], open_issues=len(record.get('issues') or []))
+            except (ValueError, OSError, KeyError): item.update(pipeline_state='awaiting_ai', content_state='draft')
+        if item.get('status') in ('ready', 'done') and item.get('workspace') and (Path(item['workspace']) / 'publication.json').exists():
+            import workspace
+            try:
+                latest = workspace.current_exports(item['workspace']) or {}
+                publication = workspace.read(Path(item['workspace']) / 'publication.json')
+                automatic = latest.get('automatic_minutes') or record is not None
+                current = not automatic or bool(record and record.get('finalization') and publication.get('export_version') == latest.get('version') and any(files.get('html') for files in latest.get('files', {}).values()))
+            except (ValueError, OSError, KeyError): current = False
+            item['status'] = 'done' if current else 'ready'
     return {'settings': settings(), 'items': items,
             'ready': [i for i in items if i.get('status') == 'ready']}
 

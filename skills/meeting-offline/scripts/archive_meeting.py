@@ -156,11 +156,14 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
     with w.locked(root):
         state = w.read(root / 'state.json')
         source = next(s for s in state['sources'] if s['source_id'] == source_id)
-        analysis = w.read(root / 'analysis.json')['sources'].get(source_id, {})
+        effective, automatic = w.effective_analysis(root, state)
+        analysis = effective['sources'].get(source_id, {})
         latest = w.read(root / 'exports/latest.json')
         publication = w.read(root / 'publication.json')
         if publication['export_version'] != latest['version'] or latest['revision'] != state['revision']:
             raise ValueError('纪要发布版本已过期；先生成并核对当前 HTML 和 PNG。')
+        if source_id in automatic and (not automatic[source_id].get('finalization') or latest.get('automatic_minutes', {}).get(source_id) != w.auto_binding(automatic[source_id])):
+            raise ValueError('自动纪要的当前版本尚未通过检查或导出，不能归档旧版本。')
         documents = publication.get('files', {}).get(source_id)
         if not documents:
             raise ValueError('来源 ' + source_id + ' 的当前版本尚未发布；先核对并发布该来源的 HTML 和 PNG。')

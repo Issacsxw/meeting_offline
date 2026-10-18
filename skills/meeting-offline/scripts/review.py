@@ -89,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, workspace.public_state(self.server.root))
             if path.startswith('/minutes/'):
                 sid = path.removeprefix('/minutes/')
-                latest = workspace.read(self.server.root / 'exports/latest.json')
+                latest = workspace.current_exports(self.server.root) or {}
                 target = latest.get('files', {}).get(sid, {}).get('html')
                 if not target:
                     return self.json(404, {'error': '该会议尚未形成可编辑纪要。'})
@@ -109,7 +109,7 @@ class Handler(BaseHTTPRequestHandler):
                 parts = path.split('/')
                 if len(parts) != 4:
                     return self.json(404, {'error': 'Unknown export.'})
-                latest = workspace.read(self.server.root / 'exports/latest.json')
+                latest = workspace.current_exports(self.server.root) or {}
                 target = latest.get('files', {}).get(parts[2], {}).get(parts[3])
                 if not target:
                     return self.json(404, {'error': 'Unknown export.'})
@@ -127,8 +127,12 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', 0))
             if not 0 < length <= 65536:
                 return self.json(413, {'error': 'Request too large or empty.'})
-            payload = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length); payload = json.loads(raw)
             path = urllib.parse.urlparse(self.path).path
+            if path == '/api/auto-answer':
+                import auto_minutes
+                result = auto_minutes.answer(self.server.root, raw)
+                return self.json(200, {'saved': True, 'automatic_minutes': result, 'exports': workspace.current_exports(self.server.root)})
             if path == '/api/roles':
                 result = workspace.save_roles(self.server.root, payload['mappings'], payload['revision'])
             elif path == '/api/term':

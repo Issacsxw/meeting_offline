@@ -322,12 +322,15 @@ def audit(root, analysis=None, state=None):
     import workspace as w
     root = Path(root)
     state = w.read(root / 'state.json') if state is None else state; w.assert_workspace(root, state)
-    analysis = w.read(root / 'analysis.json') if analysis is None else analysis
+    automatic = {}
+    if analysis is None:
+        analysis, automatic = w.effective_analysis(root, state)
     corrections = w.read(root / 'corrections.json')
     protected = w.protected_forms(state, corrections)
     problems = []
     for source in state['sources']:
         sid = source['source_id']
+        if automatic.get(sid, {}).get('finalization'): continue
         section = analysis['sources'].get(sid)
         if not section:
             continue

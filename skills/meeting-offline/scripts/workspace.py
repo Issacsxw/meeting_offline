@@ -157,7 +157,7 @@ def commit(root, state, change):
     manifest.update(revision=state['revision'], status=state['status'], updated_at=now())
     write(root / 'manifest.json', manifest)
     snapshot(root)
-    return export(root)
+    return _export(root)  # caller already holds the workspace lock
 
 
 def check_revision(state, expected):
@@ -400,18 +400,73 @@ def term_preview(root, source_id, heard):
 
 
 def public_state(root):
+    with locked(root):
+        return _public_state(root)
+
+
+def _public_state(root):
     import term_review
-    root = Path(root); state = read(root / 'state.json')
-    assert_workspace(root, state)
-    mem = memory.read_store(memory_path(state))
-    return {'revision': state['revision'], 'status': state['status'],
-        'sources': [{'source_id': s['source_id'], 'title': s['title'], 'has_audio': bool(s.get('audio_path'))} for s in state['sources']],
-        'speakers': [{k: s.get(k) for k in ('key', 'source_id', 'role_name', 'role_confirmed', 'identity_group', 'focus', 'core_points', 'recognition_quotes', 'candidate_role', 'diarization_unassigned')} | {'clips': clips_for(s)} for s in state['speakers']],
-        'roles': [p for p in mem['roles'] if p.get('active', True)],
-        'terms': [t for t in mem['terms'] if t.get('active', True)],
-        'corrections': read(root / 'corrections.json'),
-        'term_candidates': term_review.cards(root, state),
-        'exports': read(root / 'exports/latest.json') if (root / 'exports/latest.json').exists() else None}
+    root = Path(root); state = read(root / 'state.json'); assert_workspace(root, state)
+    mem = memory.read_store(memory_path(state)); _, automatic = effective_analysis(root, state)
+    return {'revision': state['revision'], 'status': state['status'], 'automatic_minutes': automatic,
+        'sources': [{'source_id': x['source_id'], 'title': x['title'], 'has_audio': bool(x.get('audio_path'))} for x in state['sources']],
+        'speakers': [{k: x.get(k) for k in ('key', 'source_id', 'role_name', 'role_confirmed', 'identity_group', 'focus', 'core_points', 'recognition_quotes', 'candidate_role', 'diarization_unassigned')} | {'clips': clips_for(x)} for x in state['speakers']],
+        'roles': [x for x in mem['roles'] if x.get('active', True)], 'terms': [x for x in mem['terms'] if x.get('active', True)],
+        'corrections': read(root / 'corrections.json'), 'term_candidates': term_review.cards(root, state),
+        'exports': _current_exports(root, automatic)}
+
+
+def current_exports(root):
+    root = Path(root)
+    with locked(root):
+        _, automatic = effective_analysis(root)
+        return _current_exports(root, automatic)
+
+
+def _current_exports(root, automatic):
+    latest = read(root / 'exports/latest.json') if (root / 'exports/latest.json').exists() else None
+    if latest:
+        latest = deepcopy(latest)
+        for sid, record in automatic.items():
+            if not record.get('finalization') or latest.get('automatic_minutes', {}).get(sid) != auto_binding(record):
+                latest['files'][sid] = {}
+    return latest
+
+
+def auto_binding(record):
+    return {'revision': record.get('revision'), 'pipeline_state': record['pipeline_state'],
+        'content_state': record['content_state'], 'finalization': record.get('finalization')}
+
+
+def effective_analysis(root, state=None):
+    """Only overlay current auto finals onto derived output; never modify manual inputs.
+
+    Delivery callers hold the workspace lock. Previously auto-bound sources with missing or
+    stale checkpoints cannot silently revert to manual delivery. Old version files remain.
+    """
+    import auto_minutes
+    root = Path(root); state = read(root / 'state.json') if state is None else state
+    result = deepcopy(validate_analysis(root, read(root / 'analysis.json'), state=state)); automatic = {}
+    previous = read(root / 'exports/latest.json').get('automatic_minutes', {}) if (root / 'exports/latest.json').exists() else {}
+    for source in state['sources']:
+        sid = source['source_id']; exists = (auto_minutes.directory(root, sid) / 'state.json').exists()
+        if not exists and sid not in previous: continue
+        try:
+            if not exists: raise ValueError('Missing automatic checkpoint')
+            record = auto_minutes._status(root, sid)
+        except (ValueError, OSError, KeyError, TypeError):
+            record = {'source_id': sid, 'pipeline_state': 'awaiting_ai', 'content_state': 'draft', 'issues': [],
+                'finalization': None, 'error': {'code': 'invalid_checkpoint', 'message': '自动整理检查点不可用，需要重新检查。'}}
+        automatic[sid] = {k: record.get(k) for k in ('source_id', 'revision', 'pipeline_state', 'content_state', 'checks', 'issues', 'candidate', 'finalization', 'stale', 'error')}
+        if record.get('finalization'):
+            result['sources'][sid] = auto_minutes.analysis(record['candidate'])['sources'][sid]
+            result['sources'][sid]['automatic_content'] = True
+        else: result['sources'].pop(sid, None)
+        segments = read(source['path'])['segments']; corrections = read(root / 'corrections.json'); protected = protected_forms(state, corrections)
+        for issue in automatic[sid].get('issues') or []:
+            issue['source_evidence'] = [{'index': i, **segments[i], 'original_text': segments[i]['text'],
+                'text': corrected_text(segments[i]['text'], sid, i, corrections, protected)} for i in issue['evidence']]
+    return result, automatic
 
 
 minutes_preferences = device_context.minutes_preferences
@@ -451,29 +506,35 @@ def vault_links(state):
 
 
 def export(root):
+    with locked(root):
+        return _export(root)
+
+
+def _export(root):
     root = Path(root); state = read(root / 'state.json')
     assert_workspace(root, state)
-    analysis = validate_analysis(root, read(root / 'analysis.json'))
+    analysis, automatic = effective_analysis(root, state)
+    bindings = {sid: auto_binding(record) for sid, record in automatic.items()}
     corrections = read(root / 'corrections.json')
     protected = sorted(protected_forms(state, corrections))
     shown_names = display_names(); theme = preferred_theme(); layout = preferred_layout(); links = vault_links(state)
     private = read(root / 'insights.json') if (root / 'insights.json').exists() else {'sources': {}}
     signature = digest({'theme': theme, 'layout': layout, 'insights': private,
                         'insights_renderer': file_digest(Path(__file__).with_name('insights.py')), 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
-                        'display_names': shown_names, 'vault_links': links,
+                        'display_names': shown_names, 'vault_links': links, 'automatic_minutes': bindings,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
                         'md_renderer': file_digest(minutes_md.__file__),
                         'audio': [Path(s['audio_path']).name if s.get('audio_path') else None for s in state['sources']],
                         'sources': [(s['source_id'], s['transcript_sha256']) for s in state['sources']]})[:16]
     directory = root / 'exports' / signature; directory.mkdir(parents=True, exist_ok=True)
     speakers = {s['key']: s for s in state['speakers']}
-    output = {'version': signature, 'revision': state['revision'], 'generated_at': now(), 'files': {}}
+    output = {'version': signature, 'revision': state['revision'], 'generated_at': now(), 'files': {}, 'automatic_minutes': bindings}
     for source in state['sources']:
         sid = source['source_id']; transcript = read(source['path'])
         if file_digest(source['path']) != source['transcript_sha256']:
             raise ValueError('Immutable raw transcript changed; refusing to export.')
-        names = {(type(s['source_speaker_id']).__name__, s['source_speaker_id']): s.get('role_name') or s['key'] for s in state['speakers'] if s['source_id'] == sid}
-        lines = [source['title'] + '｜带角色转写', '角色由用户确认；原始转写单独保留。', '']
+        names = {(type(s['source_speaker_id']).__name__, s['source_speaker_id']): (s.get('role_name') or s['key']) if s.get('role_confirmed') else minutes_html.shown_name(s) for s in state['speakers'] if s['source_id'] == sid}
+        lines = [source['title'] + '｜带角色转写', '已确认角色使用用户称呼，其他保留说话人编号；原始转写单独保留。', '']
         subtitles = []; normalized = []
         for i, segment in enumerate(transcript['segments']):
             speaker_id = segment.get('speaker_id')
@@ -483,27 +544,33 @@ def export(root):
             subtitles.append(f"{i+1}\n{timestamp(segment['start_ms'], True)} --> {timestamp(segment['end_ms'], True)}\n{name}：{text}")
             normalized.append({**segment, 'speaker_name': name, 'text': text, 'original_text': segment['text'], 'segment_id': sid + ':' + str(i)})
         structured = deepcopy(analysis['sources'].get(sid, {}))
+        auto_final = bool(automatic.get(sid, {}).get('finalization'))
         def name(key):
-            return speakers[key]['role_name'] if key else '待明确'
+            return (speakers[key]['role_name'] if speakers[key].get('role_confirmed') else minutes_html.shown_name(speakers[key])) if key else '待明确'
         def evidence(refs):
             return [{'segment_id': sid + ':' + str(i), **transcript['segments'][i]} for i in refs]
         for field in ('decisions', 'actions', 'open_questions'):
             for claim in structured.get(field, []):
                 text_key = 'task' if field == 'actions' else 'text'
                 original = claim.get(text_key, '')
-                revised = terms.correct_derived(original, sid, corrections, protected)
+                revised = original if auto_final else terms.correct_derived(original, sid, corrections, protected)
                 if revised != original:
                     claim['original_analysis_text'] = original
                     claim[text_key] = revised
                 claim['source_evidence'] = evidence(claim['evidence'])
                 if claim.get('owner'): claim['owner_name'] = name(claim['owner'])
                 if claim.get('proposer'): claim['proposer_name'] = name(claim['proposer'])
-        ready = all(s.get('role_confirmed') or s.get('ignored_by_user') for s in state['speakers'] if s['source_id'] == sid)
+        roles_ready = all(s.get('role_confirmed') or s.get('ignored_by_user') for s in state['speakers'] if s['source_id'] == sid)
+        ready = roles_ready or auto_final
         minutes = [structured.get('title') or source['title'], '', '会议日期：' + str(structured.get('meeting_date') or '待确认'),
-                   '状态：角色已确认；纪要由 AI 整理，结论仍可复核。' if ready else '状态：角色待确认，仅显示观点卡片。', '', '各角色核心观点']
+                   '状态：AI 自动整理完成，非用户确认全文；未知身份保留编号。' if auto_final else '状态：角色已确认；纪要由 AI 整理，结论仍可复核。' if roles_ready else '状态：角色待确认，仅显示观点卡片。', '', '各角色核心观点']
+        if auto_final:
+            brief = structured['reader']; minutes = [brief['topic'], '', '状态：AI 自动整理完成，非用户确认全文。', '', brief['summary'], '', '核心要点']
+            for point in brief['points']:
+                minutes.append('- ' + point['title'] + '：' + point['text'] + '（' + minutes_html.STATUS[point['status']] + '）')
         for speaker in state['speakers']:
-            if speaker['source_id'] == sid and not speaker.get('ignored_by_user'):
-                minutes.append('\n' + (speaker.get('role_name') or speaker['key']))
+            if not auto_final and speaker['source_id'] == sid and not speaker.get('ignored_by_user'):
+                minutes.append('\n' + ((speaker.get('role_name') or speaker['key']) if speaker.get('role_confirmed') else minutes_html.shown_name(speaker)))
                 for point in speaker.get('core_points', []):
                     text = point.get('text', '') if isinstance(point, dict) else point
                     # Scoped user-approved term rules can normalize derived prose; raw evidence stays intact.
@@ -530,8 +597,8 @@ def export(root):
             path = directory / (sid + '-' + suffix)
             path.write_text(text, encoding='utf-8'); files[kind] = str(path)
         path = directory / (sid + '-structured.json')
-        write(path, {'source_id': sid, 'roles_confirmed': ready, 'transcript': normalized, 'analysis': structured,
-                     'semantic_review': 'pending', 'version': signature})
+        write(path, {'source_id': sid, 'roles_confirmed': roles_ready, 'transcript': normalized, 'analysis': structured,
+                     'semantic_review': 'pass' if auto_final else 'pending', 'automatic_minutes': bindings.get(sid), 'version': signature})
         files['structured'] = str(path)
         if ready and structured:
             document = minutes_html.from_workspace(state, sid, structured, corrections, protected, shown_names, theme, layout)
@@ -583,6 +650,11 @@ def publish(root, source_ids=None, png_overrides=None):
         state = read(root / 'state.json'); latest = read(root / 'exports/latest.json')
         if latest['revision'] != state['revision']:
             raise ValueError('导出不是最新版本；请先运行 export。')
+        sections, automatic = effective_analysis(root, state)
+        targets = source_ids or [sid for sid, files in latest['files'].items() if files.get('html')]
+        for sid in targets:
+            if sid in automatic and (not automatic[sid].get('finalization') or latest.get('automatic_minutes', {}).get(sid) != auto_binding(automatic[sid])):
+                raise ValueError('来源 ' + sid + ' 的自动纪要尚未通过当前版本检查或导出。')
         if not audit.is_checked(root):
             open_ = audit.report(root)['unresolved']
             if not open_:  # every item was settled, but for an earlier export
@@ -591,10 +663,9 @@ def publish(root, source_ids=None, png_overrides=None):
             raise ValueError(f'纪要还没核对完：有 {open_} 处内容和原话对不上或没登记处理结果。'
                              '先运行 workspace.py audit，改正文或登记确认后再发布。')
         png_overrides = png_overrides or {}
-        targets = source_ids or [sid for sid, f in latest['files'].items() if f.get('html')]
         if not targets:
             raise ValueError('还没有可发布的纪要 HTML（角色确认并写入 analysis 后才会生成）。')
-        sections = read(root / 'analysis.json')['sources']
+        sections = sections['sources']
         files = {}
         for sid in targets:
             exported = latest['files'].get(sid, {})

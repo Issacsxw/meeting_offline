@@ -47,7 +47,7 @@ def duration(path):
     if path.suffix.lower() in ('.wav', '.wave'):
         try:
             with wave.open(str(path), 'rb') as source:return source.getnframes() / source.getframerate()
-        except (OSError, wave.Error):pass
+        except (OSError, EOFError, wave.Error):pass
     binary = shutil.which('ffprobe')
     if binary:
         result = subprocess.run([binary, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', str(path)],

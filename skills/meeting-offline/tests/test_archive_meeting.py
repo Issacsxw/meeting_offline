@@ -2,10 +2,12 @@ import sys
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import archive_meeting as a
 import workspace as w
 import test_workspace
+from test_obsidian import fake_png
 
 
 class ArchiveTests(unittest.TestCase):
@@ -80,6 +82,33 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(Path(result['audio']).read_bytes()[2:6], b'2345')
             self.assertFalse(Path(before).exists())
             self.assertEqual(w.read(fixture.root / 'exports/latest.json')['revision'], state['revision'])
+        finally:
+            fixture.tearDown()
+
+    def test_partial_publish_never_relabels_old_source_as_current(self):
+        fixture = test_workspace.WorkspaceTests(); fixture.setUp()
+        try:
+            def analysis(label):
+                return {'sources': {sid: {'reader': {'topic': label + sid, 'points': [
+                    {'title': '报价', 'text': '提供报价。', 'evidence': [0], 'status': 'direction'}]}}
+                    for sid in ('4', '5')}}
+            with patch.object(w.minutes_html, 'png_for', side_effect=fake_png):
+                w.set_analysis(fixture.root, analysis('旧版'), 1)
+                old = w.publish(fixture.root)
+                self.assertEqual(set(old['files']), {'4', '5'})
+                w.set_analysis(fixture.root, analysis('新版'), 2)
+                partial = w.publish(fixture.root, ['4'])
+                self.assertEqual(set(partial['files']), {'4'})
+                before = w.read(fixture.root / 'state.json')['sources'][1]['audio_path']
+                with self.assertRaisesRegex(ValueError, '尚未发布'):
+                    a.collect_workspace(fixture.root, '5', archive_root=self.root)
+                self.assertTrue(Path(before).exists())
+                # Separate publications of the same export still accumulate safely.
+                current = w.publish(fixture.root, ['5'])
+                self.assertEqual(set(current['files']), {'4', '5'})
+                archived = a.collect_workspace(fixture.root, '5', archive_root=self.root)
+                self.assertIn('新版5', Path(archived['html']).read_text())
+                self.assertNotIn('旧版5', Path(archived['html']).read_text())
         finally:
             fixture.tearDown()
 

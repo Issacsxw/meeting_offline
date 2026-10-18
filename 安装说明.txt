@@ -1,0 +1,12 @@
+会议纪要技能 · 跨设备独立版
+
+1. 解压整个压缩包。
+2. macOS/Linux：在解压目录执行 python3 install.py
+   Windows：在解压目录执行 py -3 install.py
+   也可直接把压缩包交给另一台电脑上的 Codex，让它按包内说明安装。
+3. 重新载入技能，使用 $meeting-minutes。
+4. 在新电脑单独配置 Qwen 密钥；macOS 可执行已安装技能 scripts/setup_keychain.sh。
+
+按本机设备 ID 自动建库；角色、术语、会议记录和转写缓存分别积累。
+本包不含任何已有会议、录音、人物档案、术语记录、设备 ID 或密钥。
+详细说明见 meeting-minutes/references/portability.md。

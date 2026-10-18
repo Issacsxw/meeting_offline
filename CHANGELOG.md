@@ -4,7 +4,7 @@
 
 - 技能改名为 `meeting-offline`（仓库名 `meeting_offline`），调用方式改为 `$meeting-offline` / `/meeting-offline`。
 - 从旧版升级无需手动处理：旧的 `meeting-minutes` 技能会移到 `skill-backups/`；旧数据目录、`MEETING_MINUTES_*` 环境变量和偏好设置继续有效，已积累的角色和术语不受影响。
-- 新增 README、MIT 许可证，以及打 tag 后自动发布 Release 的流程。
+- 新增 README、MIT 许可证，以及版本号更新合并到 main 后自动发布 Release 的流程。
 
 ## 11.4.0
 

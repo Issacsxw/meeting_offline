@@ -104,7 +104,7 @@ python3 build_package.py --version X.Y.Z --out dist   # 改完技能文件后更
 
 `MANIFEST.json` 记录技能文件的校验值；改动 `meeting-offline/` 下的任何文件后，都要运行 `build_package.py` 更新它，否则安装器会拒绝安装。
 
-发布新版本：在 `CHANGELOG.md` 加上 `## X.Y.Z` 一节，用 `build_package.py --version X.Y.Z` 更新版本号并提交，然后推送 `vX.Y.Z` 标签。GitHub Actions 会运行测试、打包，并创建附带两个安装包的 Release。
+发布新版本：在 `CHANGELOG.md` 加上 `## X.Y.Z` 一节，用 `build_package.py --version X.Y.Z` 更新版本号并提交，合并到 `main`。GitHub Actions 发现这个版本还没有 Release，就会运行测试、打包，创建 `vX.Y.Z` 标签和附带两个安装包的 Release（推送 `vX.Y.Z` 标签或在 Actions 页面手动运行也可以）。
 
 从 11.5 之前的版本（技能名 `meeting-minutes`）升级时，直接运行新的 `install.py` 即可：旧技能会移到 `skill-backups/`，原有的角色和术语继续可用。
 

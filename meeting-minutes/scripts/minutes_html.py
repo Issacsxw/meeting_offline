@@ -3,6 +3,7 @@ import argparse
 import html
 import json
 from pathlib import Path
+import terms
 
 
 TEMPLATE = Path(__file__).resolve().parents[1] / 'assets/minutes.html'
@@ -37,7 +38,7 @@ def png_for(html_path, out=None):
         return {'png': None, 'png_error': str(error)}
 
 
-def from_workspace(state, sid, section, corrections):
+def from_workspace(state, sid, section, corrections, protected=()):
     """Use assistant-authored concise prose; never infer owners or summaries here."""
     speakers = {s['key']: s for s in state['speakers'] if s['source_id'] == sid and not s.get('ignored_by_user')}
     def display(key, short=False):
@@ -48,10 +49,7 @@ def from_workspace(state, sid, section, corrections):
             name = name.split('｜')[0]
         return name.replace('用户本人', '我')
     def corrected(text):
-        for c in corrections:
-            if c.get('active', True) and c.get('apply_to_derived', True) and c['source_id'] == sid:
-                text = text.replace(c['heard'], c['canonical'])
-        return text
+        return terms.correct_derived(text, sid, corrections, protected)
     brief = section.get('reader', {})
     points = []
     if brief.get('points'):

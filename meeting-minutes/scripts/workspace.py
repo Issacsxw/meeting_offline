@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import memory
+import terms
 
 
 def now():
@@ -249,7 +250,9 @@ def add_term(root, payload, expected):
                 'confirmation': '用户在本地术语复核页明确确认：' + old + ' → ' + canonical}
         corrections = read(root / 'corrections.json')
         transcript = read(sources[source_id]['path'])
-        indices = [i for i, s in enumerate(transcript['segments']) if old in corrected_text(s['text'], source_id, i, corrections)]
+        protected = terms.known_forms(corrections, state.get('unconfirmed_term_candidates', []), store['terms'])
+        indices = [i for i, s in enumerate(transcript['segments'])
+                   if terms.contains(corrected_text(s['text'], source_id, i, corrections, protected), old, canonical, protected)]
         if not indices:
             raise ValueError('当前录音中未找到该写法；未创建替换，请检查原词。')
         confirmed_memory_upsert(memory_path(state), 'term', term)
@@ -260,10 +263,18 @@ def add_term(root, payload, expected):
         return commit(root, state, {'kind': 'term_confirmed', 'correction_id': correction['id'], 'actor': 'user'})
 
 
-def corrected_text(text, source_id, index, corrections):
+def protected_forms(state, corrections):
+    """Known spellings in this workspace and its device memory, so a short form never rewrites a longer one."""
+    store = memory.read_store(memory_path(state))
+    return terms.known_forms(corrections, state.get('unconfirmed_term_candidates', []), store['terms'])
+
+
+def corrected_text(text, source_id, index, corrections, protected=None):
+    if protected is None:
+        protected = terms.known_forms(corrections)
     for correction in corrections:
         if correction.get('active', True) and correction['source_id'] == source_id and index in correction['segment_indices']:
-            text = text.replace(correction['heard'], correction['canonical'])
+            text = terms.replace(text, correction['heard'], correction['canonical'], protected)
     return text
 
 
@@ -350,10 +361,11 @@ def term_preview(root, source_id, heard):
     if not source or not heard or len(heard) > 100:
         return {'count': 0, 'matches': []}
     corrections = read(Path(root) / 'corrections.json')
+    protected = protected_forms(state, corrections)
     matches = []
     for i, segment in enumerate(read(source['path'])['segments']):
-        current = corrected_text(segment['text'], source_id, i, corrections)
-        if heard in current:
+        current = corrected_text(segment['text'], source_id, i, corrections, protected)
+        if terms.contains(current, heard, None, protected):
             matches.append({'index': i, 'text': current, 'original_text': segment['text'],
                             'start_ms': segment['start_ms'], 'end_ms': min(segment['end_ms'], segment['start_ms'] + 20000)})
     return {'count': len(matches), 'matches': matches[:6]}
@@ -380,7 +392,8 @@ def export(root):
     assert_workspace(root, state)
     analysis = validate_analysis(root, read(root / 'analysis.json'))
     corrections = read(root / 'corrections.json')
-    signature = digest({'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections,
+    protected = sorted(protected_forms(state, corrections))
+    signature = digest({'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
                         'sources': [(s['source_id'], s['transcript_sha256']) for s in state['sources']]})[:16]
     directory = root / 'exports' / signature; directory.mkdir(parents=True, exist_ok=True)
@@ -396,7 +409,7 @@ def export(root):
         for i, segment in enumerate(transcript['segments']):
             speaker_id = segment.get('speaker_id')
             name = names.get((type(speaker_id).__name__, speaker_id), '未分离')
-            text = corrected_text(segment['text'], sid, i, corrections)
+            text = corrected_text(segment['text'], sid, i, corrections, protected)
             lines.append(f"[{timestamp(segment['start_ms'])}–{timestamp(segment['end_ms'])}] {name}\n{text}\n")
             subtitles.append(f"{i+1}\n{timestamp(segment['start_ms'], True)} --> {timestamp(segment['end_ms'], True)}\n{name}：{text}")
             normalized.append({**segment, 'speaker_name': name, 'text': text, 'original_text': segment['text'], 'segment_id': sid + ':' + str(i)})
@@ -409,10 +422,7 @@ def export(root):
             for claim in structured.get(field, []):
                 text_key = 'task' if field == 'actions' else 'text'
                 original = claim.get(text_key, '')
-                revised = original
-                for correction in corrections:
-                    if correction.get('active', True) and correction.get('apply_to_derived', True) and correction['source_id'] == sid:
-                        revised = revised.replace(correction['heard'], correction['canonical'])
+                revised = terms.correct_derived(original, sid, corrections, protected)
                 if revised != original:
                     claim['original_analysis_text'] = original
                     claim[text_key] = revised
@@ -428,9 +438,7 @@ def export(root):
                 for point in speaker.get('core_points', []):
                     text = point.get('text', '') if isinstance(point, dict) else point
                     # Scoped user-approved term rules can normalize derived prose; raw evidence stays intact.
-                    for correction in corrections:
-                        if correction.get('active', True) and correction.get('apply_to_derived', True) and correction['source_id'] == sid:
-                            text = text.replace(correction['heard'], correction['canonical'])
+                    text = terms.correct_derived(text, sid, corrections, protected)
                     minutes.append('- ' + text)
         if ready:
             for field, title in (('decisions', '议题与决定状态'), ('actions', '行动项'), ('open_questions', '待确认事项')):
@@ -457,7 +465,7 @@ def export(root):
                      'semantic_review': 'pending', 'version': signature})
         files['structured'] = str(path)
         if ready and structured:
-            document = minutes_html.from_workspace(state, sid, structured, corrections)
+            document = minutes_html.from_workspace(state, sid, structured, corrections, protected)
             path = directory / (sid + '-纪要.html')
             rendered = minutes_html.render(document)
             unchanged = path.exists() and path.read_text(encoding='utf-8') == rendered

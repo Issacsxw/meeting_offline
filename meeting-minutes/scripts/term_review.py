@@ -4,6 +4,7 @@ from file_lock import locked_file
 import os
 from pathlib import Path
 import memory
+import terms
 import workspace as w
 
 
@@ -50,6 +51,7 @@ def cards(root, state=None):
     sources = {s['source_id']: s for s in state['sources']}
     transcripts = {}
     corrections = w.read(root / 'corrections.json')
+    protected = w.protected_forms(state, corrections)
     result = []
     for candidate in state.get('unconfirmed_term_candidates', []):
         sid = candidate['source_id']
@@ -63,7 +65,7 @@ def cards(root, state=None):
         for form in candidate['forms']:
             occurrences = []
             for i, segment in enumerate(segments):
-                if form not in segment['text']:
+                if not terms.contains(segment['text'], form, None, protected):
                     continue
                 speaker = next((s for s in speakers if type(s['source_speaker_id']) is type(segment.get('speaker_id'))
                                 and s['source_speaker_id'] == segment.get('speaker_id')), None)
@@ -73,9 +75,9 @@ def cards(root, state=None):
                     for j in (i - 1, i + 1):
                         if 0 <= j < len(segments):
                             context.append({'index': j, 'text': segments[j]['text'], 'start_ms': segments[j]['start_ms']})
-                current = w.corrected_text(segment['text'], sid, i, corrections)
+                current = w.corrected_text(segment['text'], sid, i, corrections, protected)
                 occurrences.append({'index': i, 'text': segment['text'], 'current_text': current,
-                    'available': form in current, 'context': context,
+                    'available': terms.contains(current, form, None, protected), 'context': context,
                     'speaker': (speaker.get('role_name') or speaker['key']) if speaker else '说话人未分离',
                     'start_ms': segment['start_ms'], 'end_ms': min(segment['end_ms'], segment['start_ms'] + 30000),
                     'clip_start_ms': max(0, segment['start_ms'] - 2000),

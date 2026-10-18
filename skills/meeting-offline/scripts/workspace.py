@@ -280,6 +280,7 @@ def corrected_text(text, source_id, index, corrections, protected=None):
 
 
 def validate_analysis(root, analysis):
+    """Check the assistant-written analysis against the transcript; errors name the offending item."""
     state = read(Path(root) / 'state.json')
     assert_workspace(root, state)
     sources = {s['source_id']: read(s['path']) for s in state['sources']}
@@ -288,50 +289,60 @@ def validate_analysis(root, analysis):
         raise ValueError('Analysis requires a sources object.')
     for source_id, section in analysis['sources'].items():
         if source_id not in sources:
-            raise ValueError('Analysis references an unknown source.')
+            raise ValueError(f'Analysis references an unknown source: {source_id}.')
+        if not isinstance(section, dict):
+            raise ValueError(f'sources.{source_id} must be an object.')
+        count = len(sources[source_id]['segments'])
+
+        def check_refs(refs, where, what='valid zero-based segment evidence'):
+            if not isinstance(refs, list) or not refs or any(type(i) is not int or not 0 <= i < count for i in refs):
+                raise ValueError(f'{where}: requires {what} (segment indices 0–{count - 1}).')
+
         for field in ('decisions', 'actions', 'open_questions'):
-            if not isinstance(section.get(field, []), list):
-                raise ValueError('Analysis sections must be lists.')
-            for item in section.get(field, []):
-                refs = item.get('evidence')
-                if not isinstance(refs, list) or not refs or any(type(i) is not int or not 0 <= i < len(sources[source_id]['segments']) for i in refs):
-                    raise ValueError('Every claim requires valid zero-based segment evidence.')
+            items = section.get(field, [])
+            if not isinstance(items, list):
+                raise ValueError(f'{source_id}.{field} must be a list.')
+            for n, item in enumerate(items):
+                where = f'{source_id}.{field}[{n}]'
+                if not isinstance(item, dict):
+                    raise ValueError(f'{where} must be an object.')
+                check_refs(item.get('evidence'), where)
                 for key in ('proposer', 'owner'):
                     if item.get(key) and (item[key] not in speakers or speakers[item[key]]['source_id'] != source_id):
-                        raise ValueError('Speaker attribution must reference this source.')
+                        raise ValueError(f'{where}.{key}: speaker attribution must reference this source.')
                 if field == 'decisions' and item.get('status') not in ('direction', 'proposal', 'decided', 'open'):
-                    raise ValueError('Decision status must be direction, proposal, decided, or open.')
+                    raise ValueError(f'{where}.status must be direction, proposal, decided, or open.')
                 if field == 'actions' and item.get('owner') and item.get('owner_basis') not in ('self_commitment', 'explicit_assignment'):
-                    raise ValueError('Named action owners require explicit attribution evidence.')
+                    raise ValueError(f'{where}: named action owners require explicit attribution evidence (owner_basis).')
         if 'reader' in section:
             reader = section['reader']
             if not isinstance(reader, dict) or not isinstance(reader.get('points', []), list) or not isinstance(reader.get('todos', []), list):
-                raise ValueError('Reader summary requires point and todo lists.')
+                raise ValueError(f'{source_id}.reader requires point and todo lists.')
             if 'topic' in reader and not isinstance(reader['topic'], str):
-                raise ValueError('Reader topic must be text.')
+                raise ValueError(f'{source_id}.reader.topic must be text.')
             if 'summary' in reader:
                 if not isinstance(reader['summary'], str) or not reader['summary'].strip():
-                    raise ValueError('Reader overview must be nonempty text.')
-                refs = reader.get('summary_evidence')
-                if not isinstance(refs, list) or not refs or any(type(i) is not int or not 0 <= i < len(sources[source_id]['segments']) for i in refs):
-                    raise ValueError('Reader overview requires valid source evidence.')
-            for point in reader.get('points', []):
+                    raise ValueError(f'{source_id}.reader.summary must be nonempty text.')
+                check_refs(reader.get('summary_evidence'), f'{source_id}.reader.summary_evidence', 'valid source evidence')
+            for n, point in enumerate(reader.get('points', [])):
+                where = f'{source_id}.reader.points[{n}]'
                 if not isinstance(point, dict) or any(not isinstance(point.get(k), str) or not point[k].strip() for k in ('title', 'text')):
-                    raise ValueError('Reader points require title and text.')
-                refs = point.get('evidence')
-                if not isinstance(refs, list) or not refs or any(type(i) is not int or not 0 <= i < len(sources[source_id]['segments']) for i in refs):
-                    raise ValueError('Reader points require valid source evidence.')
+                    raise ValueError(f'{where} requires title and text.')
+                check_refs(point.get('evidence'), where, 'valid source evidence')
                 attribution = point.get('attribution', [])
                 if not isinstance(attribution, list) or any(k not in speakers or speakers[k]['source_id'] != source_id for k in attribution):
-                    raise ValueError('Reader attribution must reference this source.')
+                    raise ValueError(f'{where}.attribution must reference speakers of this source.')
             seen = set()
-            for todo in reader.get('todos', []):
+            for n, todo in enumerate(reader.get('todos', [])):
+                where = f'{source_id}.reader.todos[{n}]'
+                if not isinstance(todo, dict):
+                    raise ValueError(f'{where} must be an object.')
                 i = todo.get('action_index')
                 if type(i) is not int or not 0 <= i < len(section.get('actions', [])) or i in seen:
-                    raise ValueError('Reader todos require unique existing action indices.')
+                    raise ValueError(f'{where}.action_index must be a unique index into actions.')
                 seen.add(i)
                 if any(k in todo and (not isinstance(todo[k], str) or not todo[k].strip()) for k in ('task', 'deadline')) or set(todo) - {'action_index', 'task', 'deadline'}:
-                    raise ValueError('Reader todos may shorten text; ownership comes from the original action.')
+                    raise ValueError(f'{where}: may only shorten task/deadline text; ownership comes from the original action.')
     return analysis
 
 

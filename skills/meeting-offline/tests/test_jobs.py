@@ -42,8 +42,25 @@ class JobTests(unittest.TestCase):
     def test_ambiguous_submission_is_not_retried(self):
         with patch.object(api,'get_api_key',return_value='synthetic'),patch.object(api,'get_upload_policy',return_value={}),patch.object(api,'upload_temporary',return_value='oss://fixture'),patch.object(api,'request_json',side_effect=api.TranscriptionError('reset')) as request:
             with self.assertRaises(api.TranscriptionError):qwen_job.execute(self.args,api)
-            with self.assertRaisesRegex(api.TranscriptionError,'uncertain'):qwen_job.execute(self.args,api)
+            with self.assertRaisesRegex(api.TranscriptionError,'结果不确定'):qwen_job.execute(self.args,api)
             self.assertEqual(request.call_count,1)
+    def test_rejected_submission_stays_retryable(self):
+        # A bad key (401) or a refused connection means nothing ran; the user can fix it and retry.
+        self.args.hotwords=None; self.args.duration_seconds=60
+        failures=[api.TranscriptionError('HTTP 401', not_processed=True), {'output':{'sentences':[{'text':'好','begin_time':0,'end_time':900,'speaker_id':0}]}}]
+        def short(*a, **k):
+            item=failures.pop(0)
+            if isinstance(item, Exception): raise item
+            return api.normalize_short(item, 60)
+        with patch.object(api,'get_api_key',return_value='synthetic'),patch.object(api,'transcribe_short',side_effect=short) as call:
+            with self.assertRaisesRegex(api.TranscriptionError,'401'):qwen_job.execute(self.args,api)
+            self.assertEqual(json.loads((self.root/'job/job.json').read_text())['status'],'failed')
+            self.assertEqual(qwen_job.execute(self.args,api)['text'],'好')
+            self.assertEqual(call.call_count,2)
+    def test_missing_key_explains_both_ways_forward(self):
+        with patch.dict('os.environ',{'DASHSCOPE_API_KEY':''}),patch.object(api.sys,'platform','linux'):
+            with self.assertRaisesRegex(api.TranscriptionError,'transcription-options.md.*transcribe_local.py') as caught:api.get_api_key()
+        self.assertTrue(caught.exception.not_processed)
     def test_dry_run_no_directory_key_or_network(self):
         self.args.dry_run=True
         with patch.object(api,'get_api_key',side_effect=AssertionError),patch.object(api,'request_json',side_effect=AssertionError):
@@ -52,7 +69,7 @@ class JobTests(unittest.TestCase):
     def test_no_upload_without_recording_authorization(self):
         self.args.confirm_upload=False
         with patch.object(api,'get_api_key',side_effect=AssertionError):
-            with self.assertRaisesRegex(api.TranscriptionError,'not uploaded'):qwen_job.execute(self.args,api)
+            with self.assertRaisesRegex(api.TranscriptionError,'尚未上传'):qwen_job.execute(self.args,api)
     def test_invalid_and_short_hotword_inputs_fail_before_network(self):
         self.words.write_text('{"测试产品":true}')
         with self.assertRaises(api.TranscriptionError):qwen_job.describe(self.args,api)
@@ -68,7 +85,7 @@ class JobTests(unittest.TestCase):
         api.NETWORK_ROUTE='direct'
     def test_import_does_not_claim_hotword_effect(self):
         self.args.import_result=str(self.root/'result.json')
-        with self.assertRaisesRegex(api.TranscriptionError,'hotword-tested'):qwen_job.execute(self.args,api)
+        with self.assertRaisesRegex(api.TranscriptionError,'热词'):qwen_job.execute(self.args,api)
 
 
 if __name__=='__main__':unittest.main()

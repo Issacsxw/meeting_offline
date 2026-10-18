@@ -64,7 +64,7 @@ python3 <技能文件夹>/scripts/device_context.py init
 
 1. 重新打开（或新开一个会话）让技能生效。
 2. 直接说“整理这份会议录音”或“帮我找一下最近的会议录音”即可使用；Codex 可输入 `$meeting-offline`，Claude Code 可输入 `/meeting-offline`。
-3. 转写录音需要配置一次阿里云 DashScope API Key：macOS 运行 `<技能文件夹>/scripts/setup_keychain.sh`，其他系统设置环境变量 `DASHSCOPE_API_KEY`。
+3. 转写录音有两种方式：配置阿里云 DashScope API Key（macOS 运行 `<技能文件夹>/scripts/setup_keychain.sh`，其他系统设置环境变量 `DASHSCOPE_API_KEY`），或不申请 Key、改用本地识别（FunASR 或 Whisper，第一次用时由助手说明差别并引导安装）。详见 `<技能文件夹>/references/transcription-options.md`。
 
 ## 注意
 

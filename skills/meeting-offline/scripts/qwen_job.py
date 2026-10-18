@@ -46,51 +46,51 @@ def load_vocabulary(path, error):
     try:
         words = json.loads(Path(path).expanduser().read_text(encoding='utf-8'))
     except (OSError, ValueError) as exc:
-        raise error('Cannot read hotword JSON.') from exc
+        raise error('读不了热词 JSON 文件。') from exc
     if not isinstance(words, dict) or len(words) > 2000:
-        raise error('Hotwords must be an object with at most 2000 entries.')
+        raise error('热词必须是 JSON 对象，最多 2000 个。')
     if any(not isinstance(w, str) or not w.strip() or type(n) is not int or n not in (1, 2, 3, 4, 5, 50) for w, n in words.items()):
-        raise error('Hotword keys must be nonempty strings; weights must be 1–5 or 50.')
+        raise error('热词不能为空，权重只能是 1～5 或 50。')
     if sum(n == 50 for n in words.values()) > 50:
-        raise error('At most 50 super hotwords are allowed.')
+        raise error('权重为 50 的超级热词最多 50 个。')
     return words
 
 
 def check_result(result, config, error):
     if not isinstance(result, dict) or result.get('model') != config['model']:
-        raise error('Result model does not match this job.')
+        raise error('转写结果的模型和本次任务不一致。')
     duration = result.get('duration_seconds')
     if type(duration) not in (int, float) or not math.isfinite(duration) or abs(duration - config['duration_seconds']) > 1:
-        raise error('Result duration does not match this recording.')
+        raise error('转写结果的时长和这段录音不一致，可能不是同一段录音。')
     segments = result.get('segments')
     if not isinstance(segments, list) or not segments:
-        raise error('No usable timestamped transcript returned; raw response retained.')
+        raise error('没有得到带时间戳的转写结果；原始返回内容已保留在任务目录。')
     for segment in segments:
         start, end = segment.get('start_ms'), segment.get('end_ms')
         if (type(start) not in (int, float) or type(end) not in (int, float)
                 or not math.isfinite(start) or not math.isfinite(end)
                 or not 0 <= start <= end <= duration * 1000 + 2000
                 or not isinstance(segment.get('text'), str)):
-            raise error('Invalid timestamped segment returned; raw response retained.')
+            raise error('转写结果里有时间戳异常的片段；原始返回内容已保留在任务目录。')
 
 
 def describe(args, api):
     audio = Path(args.audio).expanduser().resolve()
     if not audio.is_file():
-        raise api.TranscriptionError('Audio file not found: ' + str(audio))
+        raise api.TranscriptionError('找不到录音：' + str(audio))
     duration = api.get_duration(audio, args.duration_seconds)
     route, model = api.choose_route(duration)
     words = load_vocabulary(args.hotwords, api.TranscriptionError)
     if args.filetrans:
         route, model = 'temporary_storage', api.LONG_MODEL
     if words and route != 'temporary_storage':
-        raise api.TranscriptionError('Inline hotwords require --filetrans for short recordings; no automatic route change.')
+        raise api.TranscriptionError('5 分钟以内的录音使用热词需要加 --filetrans（改用文件转写）；不会自动切换。')
     if audio.stat().st_size > api.MAX_TEMP_UPLOAD_BYTES:
-        raise api.TranscriptionError('Audio exceeds 1 GB; automatic splitting is disabled.')
+        raise api.TranscriptionError('录音超过 1 GB，不会自动切分；请先剪成较短的几段。')
     if duration > api.DIARIZATION_LIMIT_SECONDS and not args.no_diarization and not args.confirm_over_2h:
-        raise api.TranscriptionError('Diarization above 2 hours requires --confirm-over-2h.')
+        raise api.TranscriptionError('超过 2 小时的录音区分说话人效果可能下降（阿里云建议 2 小时以内）；用户确认后加 --confirm-over-2h。')
     if not math.isfinite(args.poll_seconds) or args.poll_seconds < 0.5 or not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
-        raise api.TranscriptionError('Invalid polling interval or timeout; nothing uploaded.')
+        raise api.TranscriptionError('查询间隔或超时设置无效；录音尚未上传。')
     config = {'model': model, 'route': route, 'duration_seconds': round(duration, 3),
               'region': args.region, 'base_url': api.region_base(args.region),
               'diarization': not args.no_diarization, 'keep_dialect': args.keep_dialect,
@@ -109,7 +109,7 @@ def execute(args, api):
     if prior:
         device_context.require_device(prior.get('device_id'), directory)
     if prior and (prior.get('audio_sha256') != sha or prior.get('config') != config):
-        raise api.TranscriptionError('This job directory belongs to different audio/settings; use a new directory.')
+        raise api.TranscriptionError('这个任务目录属于另一段录音或另一组设置；请换一个目录。')
     if args.dry_run:
         return {'dry_run': True, 'audio': audio.name, **config, 'audio_sha256': sha,
                 'job_dir': str(directory), 'job_status': prior.get('status') if prior else 'new',
@@ -117,12 +117,12 @@ def execute(args, api):
                 'temporary_audio_retention_hours': 48 if config['route'] == 'temporary_storage' else 0}
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     with locked_file(directory / '.lock', blocking=False,
-                     busy_error=api.TranscriptionError('This recording is already being processed.')):
+                     busy_error=api.TranscriptionError('这段录音正在转写中，请等它完成。')):
         manifest = json.loads(manifest_path.read_text(encoding='utf-8')) if manifest_path.exists() else {
             'schema_version': 1, 'device_id': device_context.device_id(), 'job_id': job_id, 'audio_path': str(audio),
             'audio_sha256': sha, 'config': config, 'status': 'planned', 'created_at': now()}
         if manifest.get('audio_sha256') != sha or manifest.get('config') != config:
-            raise api.TranscriptionError('Job changed while acquiring its lock.')
+            raise api.TranscriptionError('任务在加锁期间被改动，请重新运行。')
         device_context.require_device(manifest.get('device_id'), directory)
         manifest.setdefault('device_id', device_context.device_id())
         def stage(value, **extra):
@@ -133,25 +133,25 @@ def execute(args, api):
         if manifest['status'] == 'completed' and result_path.exists():
             result = json.loads(result_path.read_text(encoding='utf-8'))
             check_result(result, config, api.TranscriptionError)
-            print('[Qwen] reused local completed result; no key or network', file=sys.stderr)
+            print('[Qwen] 复用本机已完成的转写结果，未联网、未读取密钥', file=sys.stderr)
             return result
         if args.import_result:
             if config['vocabulary']:
-                raise api.TranscriptionError('Imported results cannot be relabeled as hotword-tested.')
+                raise api.TranscriptionError('导入的已有结果不能标记为“使用了热词”；去掉 --hotwords 再导入。')
             if manifest.get('task_id'):
-                raise api.TranscriptionError('Cannot replace an active cloud task with imported text.')
+                raise api.TranscriptionError('这段录音已有进行中的云端任务，不能用导入结果替换。')
             result = json.loads(Path(args.import_result).expanduser().read_text(encoding='utf-8'))
             check_result(result, config, api.TranscriptionError)
             save_json(result_path, result)
             stage('completed', origin='imported_existing_transcript', imported_at=now())
             return result
         if manifest['status'] in ('submitting', 'uncertain_submission'):
-            raise api.TranscriptionError('Submission outcome is uncertain; do not resubmit blindly. Check the provider before creating a new job.')
+            raise api.TranscriptionError('上次提交的结果不确定（可能已在阿里云处理并计费），为避免重复扣费不会自动重试。请先在百炼控制台确认，再用新的 --job-dir 重新提交。')
         if manifest['status'] in ('uploading', 'upload_failed') and not args.retry_upload:
-            raise api.TranscriptionError('Previous upload did not complete. Review it and use --retry-upload for one explicit retry.')
+            raise api.TranscriptionError('上次上传没有完成；确认后加 --retry-upload 重试一次。')
         needs_transfer = not manifest.get('task_id') and not manifest.get('oss_url')
         if needs_transfer and not args.confirm_upload:
-            raise api.TranscriptionError('This recording is not uploaded. Review --dry-run and provide --confirm-upload.')
+            raise api.TranscriptionError('这段录音尚未上传。先用 --dry-run 查看计划，用户同意后加 --confirm-upload。')
         key = api.get_api_key()
         if config['route'] == 'direct_base64':
             stage('submitting')
@@ -160,8 +160,8 @@ def execute(args, api):
                     diarization=config['diarization'], keep_dialect=config['keep_dialect'])
                 save_json(directory / 'response-normalized.json', result)
                 check_result(result, config, api.TranscriptionError)
-            except Exception:
-                stage('uncertain_submission')
+            except Exception as exc:
+                stage('failed' if getattr(exc, 'not_processed', False) else 'uncertain_submission', last_error=str(exc)[:300])
                 raise
             save_json(result_path, result)
             stage('completed')
@@ -179,7 +179,7 @@ def execute(args, api):
             else:
                 age = datetime.now(timezone.utc) - datetime.fromisoformat(manifest['uploaded_at'])
                 if age.total_seconds() >= 48 * 3600:
-                    raise api.TranscriptionError('Temporary upload may have expired; create a new reviewed job instead of silently reuploading.')
+                    raise api.TranscriptionError('临时上传可能已过期（超过 48 小时）；请用新的 --job-dir 重新提交，不会自动重新上传。')
             parameters = {'channel_id': [0], 'language_hints': ['zh'],
                           'diarization_enabled': config['diarization'], 'keep_dialect': config['keep_dialect']}
             if config['vocabulary']:
@@ -193,9 +193,9 @@ def execute(args, api):
                 save_json(directory / 'submission.json', submitted)
                 task_id = submitted.get('output', {}).get('task_id')
                 if not task_id:
-                    raise api.TranscriptionError('Submission returned no task ID; inspect the retained response before retrying.')
-            except Exception:
-                stage('uncertain_submission')
+                    raise api.TranscriptionError('提交后没有拿到任务编号；返回内容已保留，请先查看再决定是否重试。')
+            except Exception as exc:
+                stage('failed' if getattr(exc, 'not_processed', False) else 'uncertain_submission', last_error=str(exc)[:300])
                 raise
             stage('submitted', task_id=task_id)
         task_path = directory / 'task-response.json'
@@ -210,7 +210,7 @@ def execute(args, api):
         results = task.get('output', {}).get('results', [])
         succeeded = [r for r in results if r.get('subtask_status') == 'SUCCEEDED' and r.get('transcription_url')]
         if len(succeeded) != 1:
-            raise api.TranscriptionError('Task did not return exactly one successful transcript; response retained.')
+            raise api.TranscriptionError('转写任务没有返回唯一的成功结果；返回内容已保留在任务目录。')
         transcript = api.request_json(succeeded[0]['transcription_url'])
         save_json(directory / 'transcript-raw.json', transcript)
         result = api.normalize_long(transcript, task, config['duration_seconds'])

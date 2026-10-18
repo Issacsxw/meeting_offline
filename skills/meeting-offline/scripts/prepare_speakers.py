@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Group local Qwen segments into stable speaker evidence; no network or role inference."""
+"""Group transcript segments (Qwen or local) into stable speaker evidence; no network or role inference."""
 import argparse
 import json
 import math
@@ -29,7 +29,7 @@ def prepare(sources):
         data = json.loads(path.read_text(encoding='utf-8'))
         segments = data.get('segments')
         if not isinstance(segments, list) or not segments:
-            raise ValueError('Expected nonempty Qwen segments: ' + str(path))
+            raise ValueError('Expected nonempty transcript segments: ' + str(path))
         state['sources'].append({'source_id': source_id, 'path': str(path),
                                  'duration_seconds': data.get('duration_seconds'),
                                  'model': data.get('model')})
@@ -68,7 +68,7 @@ def prepare(sources):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', action='append', required=True, metavar='ID=PATH')
+    parser.add_argument('--source', action='append', required=True, metavar='ID=PATH', help='转写结果 JSON（transcribe_qwen.py 或 transcribe_local.py 的输出）')
     parser.add_argument('--out', required=True)
     args = parser.parse_args()
     try:

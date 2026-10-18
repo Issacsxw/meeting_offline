@@ -11,6 +11,7 @@ import mimetypes
 import shutil
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -35,7 +36,20 @@ TERMINAL_TASK_STATES = {"SUCCEEDED", "FAILED", "CANCELED", "UNKNOWN"}
 
 
 class TranscriptionError(RuntimeError):
-    pass
+    """`not_processed` marks failures where the provider certainly did not run the request, so a retry is safe."""
+
+    def __init__(self, message, *, not_processed=False):
+        super().__init__(message)
+        self.not_processed = not_processed
+
+
+HTTP_HINTS = {
+    400: '请求参数或音频格式不被接受',
+    401: 'API Key 无效；请检查密钥是否复制完整，或重新创建',
+    403: '没有权限：请确认已在百炼控制台开通该模型，且 Key 与地域一致（北京用默认，新加坡加 --region intl）',
+    404: '接口或任务不存在',
+    429: '请求过于频繁或额度已用完；稍后再试，或在百炼控制台查看额度',
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -76,7 +90,7 @@ def parse_args() -> argparse.Namespace:
 def get_duration(audio: Path, supplied: float | None = None) -> float:
     if supplied is not None:
         if not math.isfinite(supplied) or supplied <= 0:
-            raise TranscriptionError("Duration must be greater than zero.")
+            raise TranscriptionError("时长必须大于 0。")
         return supplied
     try:
         value = audio_duration.duration(audio)
@@ -88,9 +102,9 @@ def get_duration(audio: Path, supplied: float | None = None) -> float:
 
 def choose_route(duration_seconds: float) -> tuple[str, str]:
     if not math.isfinite(duration_seconds) or duration_seconds <= 0:
-        raise TranscriptionError("Duration must be finite and greater than zero.")
+        raise TranscriptionError("时长必须大于 0。")
     if duration_seconds > MAX_DURATION_SECONDS:
-        raise TranscriptionError("Audio exceeds 12 hours; auto-splitting is disabled.")
+        raise TranscriptionError("录音超过 12 小时，不会自动切分；请先剪成较短的几段。")
     if duration_seconds <= SHORT_LIMIT_SECONDS:
         return "direct_base64", SHORT_MODEL
     return "temporary_storage", LONG_MODEL
@@ -105,12 +119,16 @@ def region_base(region: str) -> str:
     return "https://dashscope.aliyuncs.com/api/v1"
 
 
+NO_KEY = ('没有找到阿里云 DashScope API Key。申请方法见 references/transcription-options.md；'
+          '不想申请也可以改用本地识别 scripts/transcribe_local.py。')
+
+
 def get_api_key() -> str:
     env_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
     if env_key:
         return env_key
     if sys.platform != 'darwin':
-        raise TranscriptionError('No API key found. Configure DASHSCOPE_API_KEY locally on this device.')
+        raise TranscriptionError(NO_KEY + '在本机设置环境变量 DASHSCOPE_API_KEY 后重试。', not_processed=True)
     service = os.environ.get("DASHSCOPE_KEYCHAIN_SERVICE", KEYCHAIN_SERVICE)
     try:
         result = subprocess.run(
@@ -121,12 +139,11 @@ def get_api_key() -> str:
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise TranscriptionError(
-            f"No API key found. Run setup_keychain.sh or set DASHSCOPE_API_KEY "
-            f"(Keychain service: {service})."
-        ) from exc
+            NO_KEY + f"运行 setup_keychain.sh 存入钥匙串，或设置环境变量 DASHSCOPE_API_KEY（钥匙串服务名：{service}）。",
+            not_processed=True) from exc
     key = result.stdout.strip()
     if not key:
-        raise TranscriptionError("The Keychain item exists but contains an empty key.")
+        raise TranscriptionError("钥匙串里的 API Key 是空的；请重新运行 setup_keychain.sh。", not_processed=True)
     return key
 
 
@@ -158,11 +175,14 @@ def request_json(
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise TranscriptionError(f"HTTP {exc.code} from Qwen: {body[:800]}") from exc
+        hint = HTTP_HINTS.get(exc.code, '服务暂时出错' if exc.code >= 500 else '请求被拒绝')
+        # 4xx means the provider rejected the request without running it.
+        raise TranscriptionError(f"阿里云返回 HTTP {exc.code}：{hint}。详情：{body[:500]}",
+                                 not_processed=400 <= exc.code < 500 and exc.code != 408) from exc
     except urllib.error.URLError as exc:
-        raise TranscriptionError(f"Network request failed: {exc.reason}") from exc
+        raise TranscriptionError(f"连不上阿里云：{exc.reason}。请检查网络后重试。", not_processed=True) from exc
     except json.JSONDecodeError as exc:
-        raise TranscriptionError("Service returned invalid JSON.") from exc
+        raise TranscriptionError("阿里云返回的内容无法解析。") from exc
 
 
 def audio_format(audio: Path) -> str:
@@ -270,14 +290,15 @@ def get_upload_policy(key: str, region: str, model: str) -> dict[str, Any]:
     response = request_json(f"{upload_base}/uploads?{query}", key=key)
     data = response.get("data")
     if not isinstance(data, dict):
-        raise TranscriptionError(f"Upload policy missing data: {response}")
+        raise TranscriptionError(f"获取上传凭证失败：{response}", not_processed=True)
     return data
 
 
 def upload_temporary(audio: Path, policy: dict[str, Any]) -> str:
     curl = shutil.which('curl')
-    if not curl:raise TranscriptionError('curl is required for private temporary upload; nothing uploaded.')
-    key_path = f"{policy['upload_dir'].rstrip('/')}/{audio.name}"
+    if not curl:raise TranscriptionError('上传长录音需要 curl；请先安装 curl。录音尚未上传。', not_processed=True)
+    # A neutral object name: file names often carry client or project names.
+    key_path = f"{policy['upload_dir'].rstrip('/')}/{secrets.token_hex(8)}{audio.suffix.lower()}"
     command = [
         curl,
         "--silent",
@@ -303,13 +324,15 @@ def upload_temporary(audio: Path, policy: dict[str, Any]) -> str:
         "--form",
         f"file=@{audio}",
     ]
-    command[1:1] = ["--connect-timeout", "15", "--max-time", "300"]
+    # Allow at least 100 KB/s for large files instead of a fixed five minutes.
+    max_time = max(300, audio.stat().st_size // 100_000)
+    command[1:1] = ["--connect-timeout", "15", "--max-time", str(max_time)]
     if direct_aliyun(policy["upload_host"]):
         command[1:1] = ["--noproxy", "*"]
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as exc:
-        raise TranscriptionError(f"Temporary upload failed: {exc.stderr[:800]}") from exc
+        raise TranscriptionError(f"录音上传失败：{exc.stderr[:500]}") from exc
     return f"oss://{key_path}"
 
 
@@ -321,9 +344,9 @@ def poll_task(
     timeout_seconds: float,
 ) -> dict[str, Any]:
     if poll_seconds < 0.5:
-        raise TranscriptionError("--poll-seconds must be at least 0.5.")
+        raise TranscriptionError("--poll-seconds 至少为 0.5。")
     if timeout_seconds <= 0:
-        raise TranscriptionError("--timeout-seconds must be greater than zero.")
+        raise TranscriptionError("--timeout-seconds 必须大于 0。")
     deadline = time.monotonic() + timeout_seconds
     while True:
         response = request_json(f"{base_url}/tasks/{task_id}", key=key)
@@ -331,11 +354,11 @@ def poll_task(
         status = output.get("task_status") if isinstance(output, dict) else None
         if status in TERMINAL_TASK_STATES:
             if status != "SUCCEEDED":
-                raise TranscriptionError(f"Qwen task ended with {status}: {response}")
+                raise TranscriptionError(f"阿里云转写任务结束，状态为 {status}：{response}")
             return response
         if time.monotonic() >= deadline:
             raise TranscriptionError(
-                f"Timed out waiting for task {task_id}; no automatic retry was started."
+                f"等待转写任务 {task_id} 超时。任务仍在阿里云处理，再次运行同一命令会继续查询，不会重新上传。"
             )
         time.sleep(poll_seconds)
 
@@ -374,60 +397,6 @@ def normalize_long(
         "segments": segments,
         "usage": task_response.get("usage"),
     }
-
-
-def transcribe_long(
-    audio: Path,
-    duration_seconds: float,
-    key: str,
-    base_url: str,
-    region: str,
-    *,
-    diarization: bool,
-    keep_dialect: bool,
-    poll_seconds: float,
-    timeout_seconds: float,
-) -> dict[str, Any]:
-    policy = get_upload_policy(key, region, LONG_MODEL)
-    oss_url = upload_temporary(audio, policy)
-    payload = {
-        "model": LONG_MODEL,
-        "input": {"file_urls": [oss_url]},
-        "parameters": {
-            "channel_id": [0],
-            "language_hints": ["zh"],
-            "diarization_enabled": diarization,
-            "keep_dialect": keep_dialect,
-        },
-    }
-    submitted = request_json(
-        f"{base_url}/services/audio/asr/transcription",
-        key=key,
-        method="POST",
-        payload=payload,
-        extra_headers={
-            "X-DashScope-Async": "enable",
-            "X-DashScope-OssResourceResolve": "enable",
-        },
-    )
-    output = submitted.get("output", {})
-    task_id = output.get("task_id") if isinstance(output, dict) else None
-    if not task_id:
-        raise TranscriptionError(f"Task submission returned no task_id: {submitted}")
-    task_response = poll_task(
-        task_id, key, base_url, poll_seconds, timeout_seconds
-    )
-    task_output = task_response.get("output", {})
-    results = task_output.get("results", []) if isinstance(task_output, dict) else []
-    succeeded = [
-        item
-        for item in results
-        if isinstance(item, dict) and item.get("subtask_status") == "SUCCEEDED"
-    ]
-    if len(succeeded) != 1 or not succeeded[0].get("transcription_url"):
-        raise TranscriptionError(f"Long transcription subtask failed: {task_response}")
-    transcript = request_json(succeeded[0]["transcription_url"], timeout=120.0)
-    return normalize_long(transcript, task_response, duration_seconds)
 
 
 def main() -> int:

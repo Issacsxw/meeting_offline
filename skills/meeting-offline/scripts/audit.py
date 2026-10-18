@@ -317,12 +317,12 @@ def check_claim(sid, where, claim, refs, texts, names=(), allowed_names=(), stat
     return problems
 
 
-def audit(root):
+def audit(root, analysis=None, state=None):
     """Every mismatch between the reader-facing minutes and their evidence, per source."""
     import workspace as w
     root = Path(root)
-    state = w.read(root / 'state.json'); w.assert_workspace(root, state)
-    analysis = w.read(root / 'analysis.json')
+    state = w.read(root / 'state.json') if state is None else state; w.assert_workspace(root, state)
+    analysis = w.read(root / 'analysis.json') if analysis is None else analysis
     corrections = w.read(root / 'corrections.json')
     protected = w.protected_forms(state, corrections)
     problems = []

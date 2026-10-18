@@ -6,9 +6,17 @@
 
 ## 样式
 
-提供 5 套样式，排版相同、配色和标题字体不同：
+纪要外观由两部分自由组合：**版式**决定排版结构，**配色**决定颜色和标题字体。
 
-| 样式 | 名称 | 适合 |
+| 版式 | 名称 | 样子 | 适合 |
+| --- | --- | --- | --- |
+| `classic` | 经典（默认） | 大号议题编号、表格 Todo | 日常团队纪要 |
+| `official` | 公文 | 居中红头、双线、“一、（一）”编号、全框表格 | 正式会议、报送领导 |
+| `cards` | 卡片 | 色块标题栏、两列要点卡片、Todo 卡片 | 发群、手机上看 |
+| `timeline` | 时间轴 | 议题沿时间轴展开，Todo 作为“下一步” | 项目推进、复盘 |
+| `checklist` | 极简清单 | 只有文字、圆点和复选框，图片更窄 | 快速同步、短会 |
+
+| 配色 | 名称 | 适合 |
 | --- | --- | --- |
 | `warm` | 暖白陶土（默认） | 日常团队纪要 |
 | `business` | 商务蓝 | 发给客户或领导 |
@@ -16,9 +24,10 @@
 | `fresh` | 清新绿 | 轻松的内部会议 |
 | `dark` | 深色 | 屏幕阅读、个人偏好 |
 
-- 用户在 HTML 工具栏的“样式”菜单里随时切换；保存 HTML 会记住所选样式，导出图片按当前样式生成。
-- 用户说出想要的样式时（如“用商务蓝”），独立生成用 `minutes_html.py --theme business`；工作区模式把 `theme` 写进初始化返回的 `preferences.json` 的 `meeting_offline` 下，之后的纪要都用它，再重新 `workspace.py export`。只改这一份时不写偏好，直接对已生成的 HTML 换样式重新出图即可：在页面里切换后保存，再用 `render_png.py` 出图。
-- 不要为了换样式重写正文；样式只影响外观。
+- 用户在 HTML 工具栏的“样式”（配色）和“版式”菜单里随时切换；保存 HTML 会记住所选组合，导出图片按当前组合生成。
+- 用户说出想要的样式时（如“用公文版式”“卡片 + 商务蓝”），独立生成用 `minutes_html.py --layout official --theme business`；工作区模式把 `layout`、`theme` 写进初始化返回的 `preferences.json` 的 `meeting_offline` 下（如 `{"meeting_offline": {"layout": "official", "theme": "business"}}`），之后的纪要都用它，再重新 `workspace.py export`。只改这一份时不写偏好，直接对已生成的 HTML 切换后保存，再用 `render_png.py` 出图。
+- 用户只说“换个样式”时，简短列出版式和配色让用户选，不替用户决定。
+- 不要为了换样式重写正文；版式和配色只影响外观。
 
 ## 在工作区形成正文
 
@@ -83,7 +92,7 @@ python3 <skill-dir>/scripts/minutes_html.py --document /path/to/document.json --
 python3 <skill-dir>/scripts/render_png.py --html /path/to/会议纪要.html [--out /path/to/会议纪要.png]
 ```
 
-脚本把 HTML 交给本机 Chrome/Edge/Chromium 无头运行，调用页面自己的“导出图片”逻辑（`makePng`），所以和用户点按钮得到的图完全一致：920 宽、2 倍清晰度、不含编辑工具栏。浏览器用临时配置目录，并关闭后台联网，不上传任何内容。找不到浏览器时可设 `MEETING_OFFLINE_BROWSER` 或 `--browser`；仍不可用就退回让用户在页面里点“导出图片”。内容过长（超出图片高度上限）会直接报错，需要精简或拆分正文。
+脚本把 HTML 交给本机 Chrome/Edge/Chromium 无头运行，调用页面自己的“导出图片”逻辑（`makePng`），所以和用户点按钮得到的图完全一致：920 宽（极简清单 720 宽）、2 倍清晰度、不含编辑工具栏。浏览器用临时配置目录，并关闭后台联网，不上传任何内容。找不到浏览器时可设 `MEETING_OFFLINE_BROWSER` 或 `--browser`；仍不可用就退回让用户在页面里点“导出图片”。内容过长（超出图片高度上限）会直接报错，需要精简或拆分正文。
 
 ## 用户修改后出新图
 

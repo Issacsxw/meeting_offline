@@ -97,6 +97,19 @@ class MinutesHtmlTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '未知样式'):
             minutes_html.render({'topic': 't', 'meeting_time': '', 'participants': '', 'points': [], 'todos': [], 'theme': 'neon'})
 
+    def test_layout_comes_from_preferences_and_combines_with_any_theme(self):
+        self.assertEqual(self.seed_after_analysis()['layout'], 'classic')
+        with tempfile.TemporaryDirectory() as data, mock.patch.dict(os.environ, {'MEETING_OFFLINE_DATA_HOME': data}):
+            preferences = device_context.initialize()['preferences']
+            value = w.read(preferences); value['meeting_offline'].update(layout='official', theme='business'); w.write(preferences, value)
+            w.export(self.root)
+            self.assertEqual((self.seed()['layout'], self.seed()['theme']), ('official', 'business'))
+            value['meeting_offline']['layout'] = 'poster'; w.write(preferences, value)
+            with self.assertRaisesRegex(ValueError, 'layout'):
+                w.export(self.root)
+        with self.assertRaisesRegex(ValueError, '未知版式'):
+            minutes_html.render({'topic': 't', 'meeting_time': '', 'participants': '', 'points': [], 'todos': [], 'layout': 'poster'})
+
     def seed_after_analysis(self):
         w.set_analysis(self.root, self.analysis(), 1)
         return self.seed()

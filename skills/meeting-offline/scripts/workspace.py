@@ -410,6 +410,14 @@ def preferred_theme():
     return theme
 
 
+def preferred_layout():
+    """preferences.meeting_offline.layout, one of minutes_html.LAYOUTS; 经典 by default."""
+    layout = minutes_preferences().get('layout', 'classic')
+    if layout not in minutes_html.LAYOUTS:
+        raise ValueError('preferences 中的 layout 只能是 ' + '、'.join(minutes_html.LAYOUTS) + '。')
+    return layout
+
+
 def display_names():
     """Optional preferences.meeting_offline.display_names, e.g. {"用户本人": "我"}; empty by default."""
     names = minutes_preferences().get('display_names', {})
@@ -433,8 +441,8 @@ def export(root):
     analysis = validate_analysis(root, read(root / 'analysis.json'))
     corrections = read(root / 'corrections.json')
     protected = sorted(protected_forms(state, corrections))
-    shown_names = display_names(); theme = preferred_theme(); links = vault_links(state)
-    signature = digest({'theme': theme, 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
+    shown_names = display_names(); theme = preferred_theme(); layout = preferred_layout(); links = vault_links(state)
+    signature = digest({'theme': theme, 'layout': layout, 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
                         'display_names': shown_names, 'vault_links': links,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
                         'md_renderer': file_digest(minutes_md.__file__),
@@ -509,7 +517,7 @@ def export(root):
                      'semantic_review': 'pending', 'version': signature})
         files['structured'] = str(path)
         if ready and structured:
-            document = minutes_html.from_workspace(state, sid, structured, corrections, protected, shown_names, theme)
+            document = minutes_html.from_workspace(state, sid, structured, corrections, protected, shown_names, theme, layout)
             path = directory / (sid + '-纪要.html')
             rendered = minutes_html.render(document)
             unchanged = path.exists() and path.read_text(encoding='utf-8') == rendered

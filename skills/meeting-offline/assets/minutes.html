@@ -3,17 +3,143 @@
 <style>
 :root{font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--canvas);font-size:16px;color-scheme:light;--accent:#d97757;--accent-hover:#c86849;--on-accent:#faf9f5;--deep:#a75d43;--ink:#30302c;--soft:#605e57;--muted:#89867d;--paper:#faf9f5;--canvas:#eeece5;--tint:#f1efe6;--line:#e8e6dc;--border:#e3e0d7;--chip:#f1e5da;--focus:#d7b9a9;--field-focus:#f3eee7;--hover:#eee6dc;--input:#d9d6cb;--dialog:#f4f2eb;--add:#f5f2eb;--add-ink:#a87964;--add-border:#ddd4c8;--delete:#a69c91;--done:#aaa69a;--shadow:#40382b08;--backdrop:#403c3255;--heading:"Noto Serif SC","Songti SC","STSong","SimSun",Georgia,serif;--number:"Lora",Georgia,"Times New Roman",serif}:root[data-theme=business]{--accent:#1f4e9d;--accent-hover:#183f80;--on-accent:#ffffff;--deep:#1a3f7a;--ink:#1d2633;--soft:#4a5566;--muted:#8892a1;--paper:#ffffff;--canvas:#eef1f6;--tint:#f2f5fa;--line:#e3e8ef;--border:#dde3ec;--chip:#e4ecf8;--focus:#a8bde3;--field-focus:#edf2fa;--hover:#e8eef7;--input:#d0d8e4;--dialog:#f5f7fb;--add:#f4f7fc;--add-ink:#4a68a0;--add-border:#cdd7e8;--delete:#98a2b2;--done:#a5aebb;--shadow:#1d263310;--backdrop:#1d263355;--heading:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;--number:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;}:root[data-theme=mono]{--accent:#1a1a1a;--accent-hover:#000000;--on-accent:#ffffff;--deep:#1a1a1a;--ink:#1a1a1a;--soft:#474747;--muted:#8a8a8a;--paper:#ffffff;--canvas:#ececec;--tint:#f4f4f4;--line:#e5e5e5;--border:#dedede;--chip:#ededed;--focus:#b8b8b8;--field-focus:#f2f2f2;--hover:#eaeaea;--input:#d4d4d4;--dialog:#f6f6f6;--add:#f7f7f7;--add-ink:#666666;--add-border:#cfcfcf;--delete:#9a9a9a;--done:#a8a8a8;--shadow:#00000010;--backdrop:#00000055;--heading:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;--number:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;}:root[data-theme=fresh]{--accent:#3c8c69;--accent-hover:#327757;--on-accent:#ffffff;--deep:#2c6a4f;--ink:#22302a;--soft:#4d5e55;--muted:#86978d;--paper:#fbfdfb;--canvas:#e8efe9;--tint:#eef5f0;--line:#dfe9e2;--border:#d9e5dc;--chip:#e0efe6;--focus:#a5cdb8;--field-focus:#edf6f0;--hover:#e6f0e9;--input:#cddbd2;--dialog:#f2f7f3;--add:#f2f8f4;--add-ink:#4b876a;--add-border:#c7dbce;--delete:#92a499;--done:#a2b1a7;--shadow:#22302a10;--backdrop:#22302a55;}:root[data-theme=dark]{color-scheme:dark;--accent:#e0896a;--accent-hover:#ea9a7d;--on-accent:#1c1b19;--deep:#f0a283;--ink:#ece9e1;--soft:#c4c0b6;--muted:#8f8b82;--paper:#1f1e1c;--canvas:#131312;--tint:#2a2926;--line:#34332f;--border:#34332f;--chip:#3a2a22;--focus:#7a5444;--field-focus:#2c2a27;--hover:#2f2d2a;--input:#45433e;--dialog:#252422;--add:#262523;--add-ink:#d29a82;--add-border:#47453f;--delete:#8f8b82;--done:#6f6b64;--shadow:#00000040;--backdrop:#000000aa;}.theme-picker{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--soft)}.theme-picker select{font:inherit;font-size:13px;color:var(--ink);background:var(--tint);border:1px solid var(--border);border-radius:7px;padding:9px 10px;cursor:pointer}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--canvas)}.toolbar{position:sticky;top:0;z-index:5;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--paper) 93%,transparent);backdrop-filter:blur(16px);padding:14px 24px}.tools{max-width:920px;margin:auto;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.editor-label{font-size:14px;font-weight:550}.hint{font-size:12px;color:var(--muted);margin-top:4px}.buttons{display:flex;gap:8px;flex-wrap:wrap}button,.image-download{font:inherit;font-size:13px;cursor:pointer;border:1px solid transparent;border-radius:7px;padding:10px 15px;background:var(--accent);color:var(--on-accent);text-decoration:none;display:inline-block;font-weight:500}button:hover,.image-download:hover{background:var(--accent-hover)}button.secondary{color:var(--soft);background:var(--tint);border-color:var(--border)}button.secondary:hover{background:var(--line)}button:disabled{opacity:.5;cursor:wait}button:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:3px}#status{font-size:12px;line-height:1.6;color:var(--muted);max-width:920px;margin:8px auto 0}#status:empty{display:none}.sheet{width:920px;max-width:calc(100% - 40px);margin:32px auto 56px;background:var(--paper);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 44px var(--shadow);overflow:hidden}.hero{position:relative;padding:32px 48px;background:var(--paper)}.hero:before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent)}.eyebrow{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:500;color:var(--deep);line-height:20px;margin-bottom:16px}.eyebrow-en{font-family:"Poppins",-apple-system,sans-serif;letter-spacing:1.4px;color:var(--muted);font-weight:400;font-size:11px}.topic{font-family:var(--heading);font-size:36px;line-height:52px;letter-spacing:0;font-weight:400;margin:0;color:var(--ink)}.field{white-space:pre-wrap;overflow-wrap:anywhere;outline:none;border-radius:4px;min-height:1.4em}.field:hover{background:color-mix(in srgb,var(--accent) 2.5%,transparent)}.field:focus{background:var(--field-focus);box-shadow:0 0 0 2px var(--focus)}.metadata{margin-top:16px;display:flex;flex-direction:column;gap:4px;color:var(--soft);font-size:12px;line-height:22px}.meta-item{display:flex;gap:12px;align-items:baseline;min-width:0}.meta-label{color:var(--muted);font-size:11px;flex:none;min-width:42px}.meta-value{font-size:12px;line-height:22px;color:var(--soft)}.content{padding:24px 48px 48px}.overview{display:flex;gap:24px;background:var(--tint);padding:24px;border-radius:8px;margin-bottom:32px}.overview-label{font-size:17px;line-height:30px;font-weight:500;color:var(--deep);flex:none;width:96px}.summary{font-family:var(--heading);font-size:17px;line-height:32px;color:var(--ink);font-weight:400;flex:1;min-width:0}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 4px;padding-bottom:16px;border-bottom:1px solid var(--line)}.section-title{font-family:var(--heading);font-size:21px;font-weight:500;line-height:34px;margin:0;display:flex;align-items:center;gap:12px}.section-title:before{content:"";width:3px;height:18px;background:var(--accent)}.section-count{font-size:11px;line-height:18px;color:var(--muted);padding:4px}.point{position:relative;padding:20px 0 20px 76px;border-bottom:1px solid var(--line);counter-increment:point}.point:before{content:counter(point,decimal-leading-zero);position:absolute;top:20px;left:0;width:52px;height:48px;color:var(--accent);font-family:var(--number);font-size:32px;line-height:44px;font-weight:400;text-align:center}#points{counter-reset:point}.point-title{font-weight:500;font-size:17px;line-height:30px;padding-right:24px;color:var(--ink)}.point-text{font-size:15px;line-height:28px;color:var(--soft);margin-top:8px}.delete{position:absolute;right:0;top:17px;color:var(--delete);background:transparent;padding:3px 6px;font-size:16px;opacity:0}.delete:hover{background:var(--hover)}.point:hover .delete,tr:hover .delete,.delete:focus{opacity:1}.add{font-size:11px;margin:8px 0 0;padding:6px 10px;background:var(--add);color:var(--add-ink);border:1px dashed var(--add-border)}.add:hover{background:var(--hover)}.todo-section{margin-top:32px}.table-wrap{overflow-x:auto;border-radius:4px;margin-top:16px}table{width:100%;border-collapse:collapse;font-size:14px;line-height:26px;table-layout:fixed}th{text-align:left;padding:12px;color:var(--muted);font-weight:400;font-size:11px;line-height:18px;background:var(--tint)}td{position:relative;padding:20px 12px;border-top:1px solid var(--line);vertical-align:top;color:var(--ink)}th:first-child{width:64%}th:nth-child(2){width:16%}th:nth-child(3){width:20%}.task-cell{display:flex;gap:12px}.task-cell input{flex:none;width:16px;height:16px;margin:4px 0 0;accent-color:var(--accent)}.task-cell .field{flex:1;min-width:0}.todo-owner{display:inline-block;color:var(--deep);background:var(--chip);padding:4px 8px;border-radius:4px;min-width:1.5em;font-size:12px;line-height:22px}.todo-deadline{color:var(--muted);font-size:12px;line-height:22px}.done .task-text{color:var(--muted);text-decoration:line-through}tr .delete{right:0;top:1px;font-size:14px}.no-todos{padding:16px 0;color:var(--muted);font-size:14px}.image-dialog,.info-dialog{max-width:95vw;max-height:94vh;border:1px solid var(--border);border-radius:12px;padding:22px;background:var(--dialog);box-shadow:0 24px 100px color-mix(in srgb,var(--ink) 20%,transparent)}.image-dialog{width:960px}.info-dialog{width:520px;background:var(--paper)}.image-dialog::backdrop,.info-dialog::backdrop{background:var(--backdrop);backdrop-filter:blur(3px)}.dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;top:-22px;padding:10px 0 18px;background:var(--dialog);z-index:2}.image-dialog img{width:100%;height:auto;display:block;border-radius:8px}.image-dialog p,.info-dialog p{font-size:12px;color:var(--muted);line-height:1.8}.export-size{font-size:12px;color:var(--muted);margin-top:5px}.info-dialog h2{font-family:var(--heading);font-weight:500;font-size:21px;margin:0 0 20px}.info-dialog label{font-size:13px;color:var(--soft);display:block;margin-top:17px}.info-dialog input,.info-dialog textarea{width:100%;font:inherit;font-size:14px;margin-top:7px;border:1px solid var(--input);border-radius:6px;padding:10px;color:var(--ink);background:var(--paper);resize:vertical}.info-dialog input:focus,.info-dialog textarea:focus{outline:2px solid var(--focus)}.info-dialog .buttons{justify-content:flex-end;margin-top:22px}
 @media(max-width:650px){.toolbar{padding:12px 16px}.tools{gap:10px}.hint{display:none}.buttons{gap:6px}button,.image-download{font-size:12px;padding:9px 11px}.sheet{margin:16px auto;max-width:calc(100% - 20px);border-radius:10px}.hero{padding:26px 24px}.topic{font-size:28px;line-height:42px}.eyebrow-en{font-size:9px}.content{padding:20px 24px 30px}.overview{padding:18px;gap:14px}.overview-label{width:38px;font-size:15px;line-height:27px}.summary{font-size:16px;line-height:29px}.point{padding:18px 0 18px 52px}.point:before{width:38px;font-size:27px}.point-title{font-size:16px}.point-text{font-size:14px;line-height:27px}.section-title{font-size:20px}th,td{padding:12px 8px;font-size:12px}th:first-child{width:54%}th:nth-child(2){width:17%}th:nth-child(3){width:29%}.todo-deadline{font-size:11px}.todo-owner{padding:2px 5px;font-size:11px}.delete{opacity:1}.dialog-head{flex-wrap:wrap}.task-cell{gap:7px}}
+.overview-label{white-space:pre-line}
+:root[data-layout=official] .sheet{border-radius:2px}
+:root[data-layout=official] .hero{text-align:center;padding:44px 64px 20px}
+:root[data-layout=official] .hero:before,:root[data-layout=official] .eyebrow-en,:root[data-layout=official] .section-count,:root[data-layout=official] .point:before,:root[data-layout=official] .section-title:before{display:none}
+:root[data-layout=official] .eyebrow{display:block;font-family:var(--heading);font-size:30px;line-height:44px;font-weight:700;color:var(--accent);letter-spacing:14px;padding:0 0 14px 14px;margin:0;border-bottom:2px solid var(--accent);box-shadow:0 2px 0 var(--paper),0 3px 0 var(--accent)}
+:root[data-layout=official] .topic{font-size:26px;line-height:40px;font-weight:700;margin-top:22px}
+:root[data-layout=official] .metadata{flex-direction:row;justify-content:center;flex-wrap:wrap;gap:4px 28px;margin-top:12px}
+:root[data-layout=official] .meta-item{gap:0}
+:root[data-layout=official] .meta-label{min-width:0;font-size:13px;line-height:24px;color:var(--soft)}
+:root[data-layout=official] .meta-label:after{content:"："}
+:root[data-layout=official] .meta-value{font-size:13px;line-height:24px}
+:root[data-layout=official] .content{padding:16px 64px 52px}
+:root[data-layout=official] .overview{display:block;background:none;padding:0;border-radius:0;margin-bottom:24px}
+:root[data-layout=official] .overview-label,:root[data-layout=official] .section-title{display:block;width:auto;font-family:var(--heading);font-weight:700;font-size:18px;line-height:32px;color:var(--ink);margin:0 0 6px}
+:root[data-layout=official] .summary,:root[data-layout=official] .point-text{text-indent:2em;font-family:var(--heading);font-size:16px;line-height:32px;color:var(--ink);margin:0}
+:root[data-layout=official] .section-head{border:0;padding:0;margin:0}
+:root[data-layout=official] .point{padding:0 0 10px;border:0}
+:root[data-layout=official] .point-title{text-indent:2em;font-family:var(--heading);font-weight:700;font-size:16px;line-height:32px;padding:0}
+:root[data-layout=official] .point-title:before{content:"（" counter(point,simp-chinese-informal) "）"}
+:root[data-layout=official] .todo-section{margin-top:24px}
+:root[data-layout=official] .table-wrap{margin-top:0;border-radius:0}
+:root[data-layout=official] th,:root[data-layout=official] td{border:1px solid var(--soft)}
+:root[data-layout=official] th{background:var(--tint);color:var(--ink);font-weight:700;font-size:13px;line-height:20px;text-align:center;padding:11px 10px}
+:root[data-layout=official] td{padding:12px;font-family:var(--heading);font-size:15px}
+:root[data-layout=official] .todo-owner,:root[data-layout=official] .todo-deadline{background:none;color:var(--ink);padding:0;font-size:14px;line-height:26px}
+:root[data-layout=cards] .hero{background:var(--accent);padding:36px 40px 32px}
+:root[data-layout=cards] .hero:before,:root[data-layout=cards] .section-title:before{display:none}
+:root[data-layout=cards] .eyebrow,:root[data-layout=cards] .eyebrow-en{color:color-mix(in srgb,var(--on-accent) 78%,var(--accent))}
+:root[data-layout=cards] .eyebrow{margin-bottom:12px}
+:root[data-layout=cards] .topic{color:var(--on-accent);font-family:inherit;font-weight:600;font-size:30px;line-height:44px}
+:root[data-layout=cards] .metadata{flex-direction:row;flex-wrap:wrap;gap:8px;margin-top:16px}
+:root[data-layout=cards] .meta-item{background:color-mix(in srgb,var(--on-accent) 16%,var(--accent));border-radius:15px;padding:4px 14px;gap:8px}
+:root[data-layout=cards] .meta-label,:root[data-layout=cards] .meta-value{color:var(--on-accent);min-width:0}
+:root[data-layout=cards] .hero .field:hover{background:color-mix(in srgb,var(--on-accent) 10%,transparent)}
+:root[data-layout=cards] .hero .field:focus{background:color-mix(in srgb,var(--on-accent) 18%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--on-accent) 50%,transparent)}
+:root[data-layout=cards] .content{padding:28px 40px 44px}
+:root[data-layout=cards] .overview{display:block;position:relative;padding:20px 24px;border-radius:12px;margin-bottom:28px}
+:root[data-layout=cards] .overview:before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:4px;border-radius:2px;background:var(--accent)}
+:root[data-layout=cards] .overview-label{width:auto;font-size:13px;line-height:20px;font-weight:600;color:var(--accent);margin-bottom:8px}
+:root[data-layout=cards] .summary{font-family:inherit;font-size:16px;line-height:30px}
+:root[data-layout=cards] .section-head{border:0;padding:0 0 12px;margin:0}
+:root[data-layout=cards] .section-title{font-family:inherit;font-weight:600;font-size:20px;line-height:32px}
+:root[data-layout=cards] #points{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+:root[data-layout=cards] .point{background:var(--tint);border:0;border-radius:12px;padding:60px 20px 20px}
+:root[data-layout=cards] .point:last-child:nth-child(odd){grid-column:1/-1}
+:root[data-layout=cards] .point:before{content:counter(point);top:20px;left:20px;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--on-accent);font-family:inherit;font-size:13px;line-height:28px;font-weight:600}
+:root[data-layout=cards] .point-title{font-size:16px;line-height:28px;font-weight:600}
+:root[data-layout=cards] .point-text{font-size:14px;line-height:24px;margin-top:6px}
+:root[data-layout=cards] .point .delete{top:16px;right:12px}
+:root[data-layout=cards] .todo-section{margin-top:28px}
+:root[data-layout=cards] .table-wrap{margin-top:0;overflow:visible}
+:root[data-layout=cards] table,:root[data-layout=cards] tbody{display:grid;gap:10px}
+:root[data-layout=cards] thead{display:none}
+:root[data-layout=cards] tr{display:flex;flex-wrap:wrap;align-items:center;gap:10px 8px;background:var(--tint);border-radius:10px;padding:16px;position:relative}
+:root[data-layout=cards] td{border:0;padding:0;position:static}
+:root[data-layout=cards] td:first-child{flex:1 1 100%}
+:root[data-layout=cards] .task-text{font-size:15px;line-height:26px}
+:root[data-layout=cards] td:nth-child(2),:root[data-layout=cards] td:nth-child(3){display:flex;gap:4px;font-size:12px;line-height:22px;border-radius:13px;padding:2px 12px}
+:root[data-layout=cards] td:nth-child(2){margin-left:28px;background:var(--chip);color:var(--deep)}
+:root[data-layout=cards] td:nth-child(3){padding:1px 12px;background:var(--paper);border:1px solid var(--line);color:var(--soft)}
+:root[data-layout=cards] td:nth-child(2):before{content:"负责人"}
+:root[data-layout=cards] td:nth-child(3):before{content:"期限"}
+:root[data-layout=cards] .todo-owner,:root[data-layout=cards] .todo-deadline{background:none;padding:0;color:inherit;font-size:12px;line-height:22px}
+:root[data-layout=cards] tr .delete{top:12px;right:12px}
+:root[data-layout=timeline] .hero{padding:40px 48px 8px}
+:root[data-layout=timeline] .topic{font-size:34px;line-height:50px}
+:root[data-layout=timeline] .metadata{margin-top:14px}
+:root[data-layout=timeline] .content{padding-top:20px}
+:root[data-layout=timeline] .overview{display:block;padding:20px 24px}
+:root[data-layout=timeline] .overview-label{width:auto;font-size:13px;line-height:20px;font-weight:600;margin-bottom:8px}
+:root[data-layout=timeline] .summary{font-size:16px;line-height:30px}
+:root[data-layout=timeline] .section-head{border:0;margin:0}
+:root[data-layout=timeline] .section-count{display:none}
+:root[data-layout=timeline] #points{padding-left:40px}
+:root[data-layout=timeline] .point{border:0;padding:0 0 28px}
+:root[data-layout=timeline] .point:before{content:"";top:1px;left:-37px;width:16px;height:16px;border-radius:50%;border:3px solid var(--accent);background:var(--paper);z-index:1}
+:root[data-layout=timeline] .point:not(:last-child):after{content:"";position:absolute;left:-30px;top:9px;height:100%;width:2px;background:var(--line)}
+:root[data-layout=timeline] .point-title{padding-right:24px}
+:root[data-layout=timeline] .point-title:before{content:"议题 " counter(point,decimal-leading-zero);display:block;font-size:11px;line-height:18px;margin-bottom:2px;color:var(--accent);font-weight:500;letter-spacing:1px}
+:root[data-layout=timeline] .point-text{margin-top:6px}
+:root[data-layout=timeline] .todo-section{margin-top:8px}
+:root[data-layout=timeline] .table-wrap{margin-top:0;overflow:visible}
+:root[data-layout=timeline] table,:root[data-layout=timeline] tbody{display:block}
+:root[data-layout=timeline] thead{display:none}
+:root[data-layout=timeline] tr{display:block;position:relative;margin-left:40px;padding:0 0 22px}
+:root[data-layout=timeline] tr:not(:last-child):after{content:"";position:absolute;left:-30px;top:13px;height:100%;border-left:2px dashed var(--line)}
+:root[data-layout=timeline] td{display:inline-block;border:0;padding:0;position:static;margin-top:4px}
+:root[data-layout=timeline] td:first-child{display:block;margin:0}
+:root[data-layout=timeline] .task-cell input{position:absolute;left:-37px;top:5px;margin:0;z-index:1}
+:root[data-layout=timeline] .task-text{font-size:15px;line-height:26px}
+:root[data-layout=timeline] td:nth-child(2):before{content:"负责人 ";color:var(--muted);font-size:12px}
+:root[data-layout=timeline] td:nth-child(3):before{content:"　·　期限 ";color:var(--muted);font-size:12px}
+:root[data-layout=timeline] .todo-owner,:root[data-layout=timeline] .todo-deadline{display:inline-block;background:none;padding:0;color:var(--soft);font-size:12px;line-height:20px}
+:root[data-layout=checklist] .sheet{width:720px}
+:root[data-layout=checklist] .hero{padding:44px 48px 0}
+:root[data-layout=checklist] .hero:before,:root[data-layout=checklist] .eyebrow,:root[data-layout=checklist] .meta-label,:root[data-layout=checklist] .section-count,:root[data-layout=checklist] .section-title:before{display:none}
+:root[data-layout=checklist] .topic{font-family:inherit;font-size:26px;line-height:38px;font-weight:600}
+:root[data-layout=checklist] .metadata{flex-direction:row;flex-wrap:wrap;gap:0;margin-top:8px}
+:root[data-layout=checklist] .meta-item:not([hidden])~.meta-item:not([hidden]):before{content:"　·　";color:var(--muted);font-size:13px;line-height:22px}
+:root[data-layout=checklist] .meta-value{font-size:13px;line-height:22px;color:var(--muted)}
+:root[data-layout=checklist] .content{padding:32px 48px 44px}
+:root[data-layout=checklist] .overview{display:block;background:none;padding:0;border-radius:0;margin-bottom:28px}
+:root[data-layout=checklist] .overview-label,:root[data-layout=checklist] .section-title{display:block;width:auto;font-family:inherit;font-size:12px;line-height:20px;font-weight:600;letter-spacing:2px;color:var(--muted);margin:0 0 8px}
+:root[data-layout=checklist] .summary{font-family:inherit;font-size:15px;line-height:28px}
+:root[data-layout=checklist] .section-head{border:0;padding:0;margin:0}
+:root[data-layout=checklist] .point{padding:0 0 8px 20px;border:0}
+:root[data-layout=checklist] .point:before{content:"";top:11px;left:4px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+:root[data-layout=checklist] .point-title,:root[data-layout=checklist] .point-text{display:inline;font-size:15px;line-height:28px;padding:0;margin:0}
+:root[data-layout=checklist] .point-title{font-weight:600}
+:root[data-layout=checklist] .point-title:after{content:"："}
+:root[data-layout=checklist] .point-text{color:var(--soft)}
+:root[data-layout=checklist] .point .delete{top:2px}
+:root[data-layout=checklist] .todo-section{margin-top:20px}
+:root[data-layout=checklist] .table-wrap{margin-top:0;overflow:visible}
+:root[data-layout=checklist] table,:root[data-layout=checklist] tbody,:root[data-layout=checklist] tr{display:block}
+:root[data-layout=checklist] thead,:root[data-layout=checklist] td[data-empty]{display:none}
+:root[data-layout=checklist] tr{position:relative;padding:0 0 10px 28px}
+:root[data-layout=checklist] td{display:inline;border:0;padding:0;position:static;font-size:15px;line-height:28px}
+:root[data-layout=checklist] .task-cell,:root[data-layout=checklist] .task-cell .field{display:inline}
+:root[data-layout=checklist] .task-cell input{position:absolute;left:0;top:6px;margin:0}
+:root[data-layout=checklist] td:nth-child(2):before{content:"　— ";color:var(--muted)}
+:root[data-layout=checklist] td:nth-child(3):before{content:" · ";color:var(--muted)}
+:root[data-layout=checklist] .todo-owner,:root[data-layout=checklist] .todo-deadline{display:inline;background:none;padding:0;color:var(--muted);font-size:15px;line-height:28px}
+:root[data-layout=checklist] tr .delete{top:4px}
+@media(max-width:650px){:root[data-layout=official] .hero,:root[data-layout=cards] .hero,:root[data-layout=timeline] .hero,:root[data-layout=checklist] .hero{padding:28px 22px 16px}:root[data-layout=official] .content,:root[data-layout=cards] .content,:root[data-layout=checklist] .content{padding:20px 22px 30px}:root[data-layout=cards] #points{grid-template-columns:1fr}:root[data-layout=official] .eyebrow{font-size:24px;letter-spacing:8px;padding-left:8px}:root[data-layout=checklist] .sheet{max-width:calc(100% - 20px)}}
 @media print{body{background:var(--paper)}.toolbar,.theme-picker,.add,.delete,dialog{display:none!important}.sheet{width:100%;max-width:none;border:0;box-shadow:none;margin:0;border-radius:0}.hero{print-color-adjust:exact}.content{padding-top:24px}.field:hover,.field:focus{background:none;box-shadow:none}.point,tr{break-inside:avoid}.overview,th,.todo-owner{print-color-adjust:exact}}
 
 </style></head><body>
-<header class="toolbar"><div class="tools"><div><div class="editor-label">会议纪要编辑器</div><div class="hint">点击文字编辑 · 保存 HTML 保留修改</div></div><div class="buttons"><label class="theme-picker">样式<select id="theme" aria-label="纪要样式"></select></label><button id="edit-info" class="secondary">会议信息</button><button id="save-html" class="secondary">保存 HTML</button><button id="export-png">导出图片</button></div></div><div id="status" role="status" aria-live="polite"></div></header>
+<header class="toolbar"><div class="tools"><div><div class="editor-label">会议纪要编辑器</div><div class="hint">点击文字编辑 · 保存 HTML 保留修改</div></div><div class="buttons"><label class="theme-picker">样式<select id="theme" aria-label="纪要样式"></select></label><label class="theme-picker">版式<select id="layout" aria-label="纪要版式"></select></label><button id="edit-info" class="secondary">会议信息</button><button id="save-html" class="secondary">保存 HTML</button><button id="export-png">导出图片</button></div></div><div id="status" role="status" aria-live="polite"></div></header>
 <main class="sheet" id="sheet">
 <header class="hero"><div class="eyebrow"><span>会议纪要</span><span class="eyebrow-en">MEETING NOTES</span></div>
 <h1 id="topic" class="field topic" contenteditable="true" role="textbox" aria-label="会议主题"></h1>
 <div class="metadata"><div class="meta-item" id="time-row"><span class="meta-label">时间</span><div id="meeting-time" class="field meta-value" contenteditable="true" role="textbox" aria-label="会议时间"></div></div><div class="meta-item" id="people-row"><span class="meta-label">参会人</span><div id="participants" class="field meta-value" contenteditable="true" role="textbox" aria-label="参会人"></div></div></div></header>
-<div class="content"><section class="overview" id="overview"><div class="overview-label">会议<br>概要</div><div id="summary" class="field summary" contenteditable="true" role="textbox" aria-label="会议概要"></div></section>
-<section><div class="section-head"><h2 class="section-title">核心要点</h2><span class="section-count" id="point-count"></span></div><div id="points"></div><button class="add" id="add-point">＋ 添加要点</button></section>
-<section class="todo-section"><div class="section-head"><h2 class="section-title">主要 Todo</h2><span class="section-count" id="todo-count"></span></div><div class="table-wrap" id="todos-wrap"><table id="todos-table"><thead><tr><th>事项 / 交付物</th><th>负责人</th><th>期限</th></tr></thead><tbody id="todos"></tbody></table></div><div id="no-todos" class="no-todos" hidden>本次未形成明确待办。</div><button class="add" id="add-todo">＋ 添加 Todo</button></section></div>
+<div class="content"><section class="overview" id="overview"><div class="overview-label" id="summary-label">会议
+概要</div><div id="summary" class="field summary" contenteditable="true" role="textbox" aria-label="会议概要"></div></section>
+<section><div class="section-head"><h2 class="section-title" id="points-title">核心要点</h2><span class="section-count" id="point-count"></span></div><div id="points"></div><button class="add" id="add-point">＋ 添加要点</button></section>
+<section class="todo-section"><div class="section-head"><h2 class="section-title" id="todos-title">主要 Todo</h2><span class="section-count" id="todo-count"></span></div><div class="table-wrap" id="todos-wrap"><table id="todos-table"><thead><tr><th>事项 / 交付物</th><th>负责人</th><th>期限</th></tr></thead><tbody id="todos"></tbody></table></div><div id="no-todos" class="no-todos" hidden>本次未形成明确待办。</div><button class="add" id="add-todo">＋ 添加 Todo</button></section></div>
 </main>
 <dialog id="info-dialog" class="info-dialog"><h2>会议信息</h2><label for="info-time">会议时间<input id="info-time" type="text" placeholder="填写日期与时段，可留空"></label><label for="info-people">参会人<input id="info-people" type="text" placeholder="姓名，用顿号分隔"></label><label for="info-summary">会议概要<textarea id="info-summary" rows="4"></textarea></label><p>留空的时间不会出现在纪要和图片中。</p><div class="buttons"><button id="close-info" class="secondary">取消</button><button id="apply-info">应用</button></div></dialog>
 <dialog id="image-dialog" class="image-dialog"><div class="dialog-head"><div><strong>图片预览</strong><div id="export-size" class="export-size"></div></div><div class="buttons"><a id="download-image" class="image-download" download>下载 PNG</a><button id="close-preview" class="secondary">关闭</button></div></div><img id="png-preview" alt="会议纪要图片预览"></dialog>
@@ -22,6 +148,12 @@
 'use strict';
 const seed=JSON.parse(document.querySelector('#minutes-data').textContent);
 const THEMES={warm:'暖白陶土',business:'商务蓝',mono:'极简黑白',fresh:'清新绿',dark:'深色'};
+const LAYOUTS={classic:'经典',official:'公文',cards:'卡片',timeline:'时间轴',checklist:'极简清单'};
+// Section names per layout: summary, points, todos. 公文 numbers the sections that are shown.
+const LABELS={classic:['会议\n概要','核心要点','主要 Todo'],official:['会议概要','核心要点','主要事项'],cards:['会议概要','核心要点','主要 Todo'],timeline:['会议概要','讨论脉络','下一步'],checklist:['概要','要点','待办']};
+function chineseNumber(n){const d='零一二三四五六七八九';return n<10?d[n]:n<20?'十'+(n%10?d[n%10]:''):d[Math.floor(n/10)]+'十'+(n%10?d[n%10]:'')}
+function sectionLabels(layout,hasSummary){const labels=LABELS[layout]||LABELS.classic;if(layout!=='official')return labels;let n=0;return labels.map((label,i)=>i||hasSummary?chineseNumber(++n)+'、'+label:label)}
+function mix(a,b,t){const rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)),x=rgb(a),y=rgb(b);return'#'+x.map((v,i)=>Math.round(v*t+y[i]*(1-t)).toString(16).padStart(2,'0')).join('')}
 const $=selector=>document.querySelector(selector);
 const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e};
 let dirty=false,currentImageObjectURL=null;
@@ -30,16 +162,22 @@ function changed(){dirty=true;status('有未保存的修改；保存 HTML 可在
 function editable(value,label,cls){const e=element('div',value,'field '+(cls||''));e.contentEditable='true';e.setAttribute('role','textbox');e.setAttribute('aria-label',label);return e}
 function text(e){return e.innerText.replace(/\u00a0/g,' ').trim()}
 function syncCounts(){const rows=[...$('#todos').children];$('#no-todos').hidden=!!rows.length;$('#todos-wrap').hidden=!rows.length;$('#point-count').textContent=`${$('#points').children.length} 个议题`;const done=rows.filter(r=>r.querySelector('input').checked).length;$('#todo-count').textContent=done?`${done} / ${rows.length} 已完成`:`${rows.length} 项行动`}
-function syncInfo(){$('#time-row').hidden=!text($('#meeting-time'));$('#people-row').hidden=!text($('#participants'));$('#overview').hidden=!text($('#summary'))}
+function syncInfo(){$('#time-row').hidden=!text($('#meeting-time'));$('#people-row').hidden=!text($('#participants'));$('#overview').hidden=!text($('#summary'));labelSections()}
+function labelSections(){const [a,b,c]=sectionLabels(document.documentElement.dataset.layout,!$('#overview').hidden);$('#summary-label').textContent=a;$('#points-title').textContent=b;$('#todos-title').textContent=c}
 function pointRow(point){const row=element('article',undefined,'point');row.append(editable(point.title||'要点','要点标题','point-title'),editable(point.text||'','要点内容','point-text'));const remove=element('button','×','delete');remove.setAttribute('aria-label','删除此要点');remove.onclick=()=>{row.remove();syncCounts();changed()};row.append(remove);return row}
-function todoRow(todo){const row=element('tr');row.classList.toggle('done',!!todo.done);const cell=element('td'),task=element('div',undefined,'task-cell'),check=element('input');check.type='checkbox';check.checked=!!todo.done;check.setAttribute('aria-label','标记此 Todo 已完成');check.onchange=()=>{row.classList.toggle('done',check.checked);syncCounts();changed()};task.append(check,editable(todo.task||'','Todo 事项','task-text'));cell.append(task);row.append(cell);const owner=element('td');owner.append(editable(todo.owner||'—','Todo 负责人','todo-owner'));row.append(owner);const deadline=element('td');deadline.append(editable(todo.deadline||'—','Todo 期限','todo-deadline'));const remove=element('button','×','delete');remove.setAttribute('aria-label','删除此 Todo');remove.onclick=()=>{row.remove();syncCounts();changed()};deadline.append(remove);row.append(deadline);return row}
+function todoRow(todo){const row=element('tr');row.classList.toggle('done',!!todo.done);const cell=element('td'),task=element('div',undefined,'task-cell'),check=element('input');check.type='checkbox';check.checked=!!todo.done;check.setAttribute('aria-label','标记此 Todo 已完成');check.onchange=()=>{row.classList.toggle('done',check.checked);syncCounts();changed()};task.append(check,editable(todo.task||'','Todo 事项','task-text'));cell.append(task);row.append(cell);const owner=element('td');owner.append(editable(todo.owner||'—','Todo 负责人','todo-owner'));row.append(owner);const deadline=element('td');deadline.append(editable(todo.deadline||'—','Todo 期限','todo-deadline'));markEmpty(owner);markEmpty(deadline);const remove=element('button','×','delete');remove.setAttribute('aria-label','删除此 Todo');remove.onclick=()=>{row.remove();syncCounts();changed()};deadline.append(remove);row.append(deadline);return row}
+// 极简清单 hides an owner or deadline that is still “—”.
+function markEmpty(cell){const sync=()=>{if(['','—'].includes(text(cell.querySelector('.field'))))cell.dataset.empty='';else delete cell.dataset.empty};sync();cell.addEventListener('input',sync)}
+function applyLayout(name){const layout=name in LAYOUTS?name:'classic';document.documentElement.dataset.layout=layout;$('#layout').value=layout;labelSections()}
 function applyTheme(name){const theme=name in THEMES?name:'warm';document.documentElement.dataset.theme=theme;$('#theme').value=theme}
-function render(data){applyTheme(data.theme);$('#meeting-time').textContent=data.meeting_time||'';$('#topic').textContent=data.topic||'会议纪要';$('#participants').textContent=data.participants||'';$('#summary').textContent=data.summary||'';$('#points').replaceChildren(...(data.points||[]).map(pointRow));$('#todos').replaceChildren(...(data.todos||[]).map(todoRow));syncCounts();syncInfo();document.title=data.topic||'会议纪要'}
-function collect(){return{...seed,theme:document.documentElement.dataset.theme,meeting_time:text($('#meeting-time')),topic:text($('#topic')),participants:text($('#participants')),summary:text($('#summary')),points:[...$('#points').children].map(row=>({title:text(row.querySelector('.point-title')),text:text(row.querySelector('.point-text'))})),todos:[...$('#todos').children].map(row=>({task:text(row.querySelector('.task-text')),owner:text(row.querySelector('.todo-owner')),deadline:text(row.querySelector('.todo-deadline')),done:row.querySelector('input').checked}))}}
+function render(data){applyTheme(data.theme);applyLayout(data.layout);$('#meeting-time').textContent=data.meeting_time||'';$('#topic').textContent=data.topic||'会议纪要';$('#participants').textContent=data.participants||'';$('#summary').textContent=data.summary||'';$('#points').replaceChildren(...(data.points||[]).map(pointRow));$('#todos').replaceChildren(...(data.todos||[]).map(todoRow));syncCounts();syncInfo();document.title=data.topic||'会议纪要'}
+function collect(){return{...seed,theme:document.documentElement.dataset.theme,layout:document.documentElement.dataset.layout,meeting_time:text($('#meeting-time')),topic:text($('#topic')),participants:text($('#participants')),summary:text($('#summary')),points:[...$('#points').children].map(row=>({title:text(row.querySelector('.point-title')),text:text(row.querySelector('.point-text'))})),todos:[...$('#todos').children].map(row=>({task:text(row.querySelector('.task-text')),owner:text(row.querySelector('.todo-owner')),deadline:text(row.querySelector('.todo-deadline')),done:row.querySelector('input').checked}))}}
 function filename(ext){return(text($('#topic'))||'会议纪要').replace(/[<>:"/\\|?*\x00-\x1f]/g,'-').slice(0,90)+'.'+ext}
 function download(url,name){const a=element('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove()}
 $('#theme').replaceChildren(...Object.entries(THEMES).map(([value,label])=>{const o=element('option',label);o.value=value;return o}));
 $('#theme').onchange=()=>{applyTheme($('#theme').value);changed()};
+$('#layout').replaceChildren(...Object.entries(LAYOUTS).map(([value,label])=>{const o=element('option',label);o.value=value;return o}));
+$('#layout').onchange=()=>{applyLayout($('#layout').value);changed()};
 $('#sheet').addEventListener('input',changed);
 $('#sheet').addEventListener('paste',event=>{if(!event.target.closest('[contenteditable]'))return;event.preventDefault();const pasted=event.clipboardData.getData('text/plain'),selection=window.getSelection();if(!selection.rangeCount)return;const range=selection.getRangeAt(0);range.deleteContents();const node=document.createTextNode(pasted);range.insertNode(node);range.setStartAfter(node);range.collapse(true);selection.removeAllRanges();selection.addRange(range);changed()});
 $('#edit-info').onclick=()=>{$('#info-time').value=text($('#meeting-time'));$('#info-people').value=text($('#participants'));$('#info-summary').value=text($('#summary'));$('#info-dialog').showModal()};
@@ -51,26 +189,105 @@ $('#save-html').onclick=()=>{const data=collect(),clone=document.documentElement
 
 // Canvas uses only local text and browser fonts; no external rendering service.
 const fontStacks={sans:'"Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',serif:'"Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif',number:'"Lora", Georgia, "Times New Roman", serif',latin:'"Poppins", -apple-system, sans-serif'};
-function themeTokens(){const style=getComputedStyle(document.documentElement),t={};for(const k of ['ink','soft','muted','accent','deep','paper','tint','line','chip','input','done','heading','number'])t[k]=style.getPropertyValue('--'+k).trim();return t}
+function themeTokens(){const style=getComputedStyle(document.documentElement),t={};for(const k of ['ink','soft','muted','accent','on-accent','deep','paper','tint','line','chip','input','done','heading','number'])t[k]=style.getPropertyValue('--'+k).trim();return t}
 const font=(size,weight=400,family='sans')=>`${weight} ${size}px ${fontStacks[family]||fontStacks.sans}`;
 function wrap(ctx,value,width,size,weight=400,family='sans'){ctx.font=font(size,weight,family);const lines=[];for(const paragraph of String(value||'').split('\n')){let line='';const tokens=paragraph.match(/[A-Za-z0-9][A-Za-z0-9_+./-]*|\s+|[^\s]/gu)||[''];for(const token of tokens){if(ctx.measureText(line+token).width<=width){line+=token;continue}if(line){const chars=Array.from(line);let carry='';if(/^[，。！？；：、）)》〉】」』”’…,.!?;:%]/u.test(token)||/[（(《〈【「『“‘]$/u.test(line)){carry=chars.pop()||'';while(chars.length&&/[（(《〈【「『“‘]/u.test(chars[chars.length-1]))carry=chars.pop()+carry}if(chars.length)lines.push(chars.join('').trimEnd());line=carry}if(ctx.measureText(line+token).width<=width){line+=token.trimStart();continue}for(const character of Array.from(token)){if(line&&ctx.measureText(line+character).width>width){lines.push(line);line=''}line+=character}}lines.push(line.trimEnd())}return lines}
-async function makePng(data){if(document.fonts?.ready)await document.fonts.ready;const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');if(!ctx)throw Error('此浏览器暂不支持图片导出。');const T=themeTokens();fontStacks.serif=T.heading;fontStacks.number=T.number;const width=920,pad=48,inner=width-pad*2,ops=[],ink=T.ink,muted=T.muted,secondary=T.soft,accent=T.accent,paper=T.paper;let y=32;
+async function makePng(data){if(document.fonts?.ready)await document.fonts.ready;const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');if(!ctx)throw Error('此浏览器暂不支持图片导出。');const T=themeTokens();fontStacks.serif=T.heading;fontStacks.number=T.number;const layout=data.layout in LAYOUTS?data.layout:'classic',[summaryLabel,pointsLabel,todosLabel]=sectionLabels(layout,!!data.summary);const width=layout==='checklist'?720:920,pad=layout==='official'?64:layout==='cards'?40:48,inner=width-pad*2,ops=[],ink=T.ink,muted=T.muted,secondary=T.soft,accent=T.accent,paper=T.paper;let y=32;
  const rect=(x,top,w,h,color,r=0)=>ops.push({kind:'rect',x,y:top,w,h,color,r});
  const line=(x,top,w,color=T.line)=>rect(x,top,w,1,color);
- function words(value,x,top,w,size=15,height=28,weight=400,color=ink,family='sans'){const lines=wrap(ctx,value,w,size,weight,family);ops.push({kind:'text',lines,x,y:top,size,height,weight,color,family});return lines.length*height}
- function section(value,note){rect(pad,y+8,3,18,accent);words(value,pad+15,y,inner-170,21,34,500,ink,'serif');ctx.font=font(11);const nw=ctx.measureText(note).width+8;words(note,width-pad-nw,y+8,nw,11,18,400,muted);y+=50;line(pad,y,inner);y+=4}
- rect(0,0,width,2,accent);words('会议纪要',pad,y,200,11,20,500,T.deep);words('MEETING NOTES',width-pad-100,y,100,11,20,400,muted,'latin');y+=36;
- y+=words(data.topic||'会议纪要',pad,y,inner,36,52,400,ink,'serif');y+=16;
- for(const [label,value] of [['时间',data.meeting_time],['参会人',data.participants]]){if(!value)continue;words(label,pad,y,42,11,20,500,muted);const h=words(value,pad+54,y,inner-54,12,22,400,secondary);y+=h+4}
- y+=32+24;
- if(data.summary){const bodyH=wrap(ctx,data.summary,inner-48-120,17,400,'serif').length*32,h=Math.max(60,bodyH)+48;rect(pad,y,inner,h,T.tint,8);words('会议\n概要',pad+24,y+24,96,17,30,500,T.deep);words(data.summary,pad+144,y+24,inner-168,17,32,400,ink,'serif');y+=h+32}
- section('核心要点',`${data.points.length} 个议题`);
- data.points.forEach((point,i)=>{y+=20;const titleH=wrap(ctx,point.title,inner-76,17,500).length*30,bodyH=wrap(ctx,point.text,inner-76,15).length*28;words(String(i+1).padStart(2,'0'),pad+5,y,52,32,44,400,accent,'number');words(point.title,pad+76,y,inner-76,17,30,500);words(point.text,pad+76,y+titleH+8,inner-76,15,28,400,secondary);y+=Math.max(48,titleH+8+bodyH)+20;line(pad,y,inner);y+=4});
- y+=28;const done=data.todos.filter(t=>t.done).length;section('主要 Todo',done?`${done} / ${data.todos.length} 已完成`:`${data.todos.length} 项行动`);y+=12;
- if(data.todos.length){const cols=[inner-132-166,132,166],xs=[pad,pad+cols[0],pad+cols[0]+cols[1]];rect(pad,y,inner,42,T.tint,4);['事项 / 交付物','负责人','期限'].forEach((v,i)=>words(v,xs[i]+12,y+12,cols[i]-24,11,18,400,muted));y+=42;
- for(const todo of data.todos){const values=[todo.task,todo.owner||'—',todo.deadline||'—'],sizes=[14,12,12],widths=[cols[0]-52,cols[1]-32,cols[2]-24],heights=values.map((v,i)=>wrap(ctx,v,widths[i],sizes[i]).length*(i===0?26:22)),h=Math.max(30,...heights)+40;line(pad,y,inner);rect(pad+12,y+21,16,16,todo.done?accent:T.input,4);if(!todo.done)rect(pad+13,y+22,14,14,paper,3);if(todo.done)words('✓',pad+14,y+20,14,12,16,500,paper);words(values[0],xs[0]+40,y+20,widths[0],14,26,400,todo.done?muted:ink);ctx.font=font(12);const ownerW=Math.min(ctx.measureText(values[1]).width+16,cols[1]-24);rect(xs[1]+12,y+20,ownerW,heights[1]+8,T.chip,4);words(values[1],xs[1]+20,y+24,widths[1],12,22,400,T.deep);words(values[2],xs[2]+12,y+20,widths[2],12,22,400,muted);if(todo.done){const taskLines=wrap(ctx,values[0],widths[0],14);taskLines.forEach((v,i)=>{ctx.font=font(14);line(xs[0]+40,y+32+i*26,ctx.measureText(v).width,T.done)})}y+=h}line(pad,y,inner)}else y+=words('本次未形成明确待办。',pad,y,inner,14,26,400,muted);
+ const circle=(x,top,r,color)=>ops.push({kind:'circle',x,y:top,r,color});
+ const measure=(value,size,weight=400,family='sans')=>{ctx.font=font(size,weight,family);return ctx.measureText(value).width};
+ const tall=(value,w,size,height,weight=400,family='sans')=>wrap(ctx,value,w,size,weight,family).length*height;
+ const blank=value=>!value||value==='—';
+ function words(value,x,top,w,size=15,height=28,weight=400,color=ink,family='sans',align='left'){const lines=wrap(ctx,value,w,size,weight,family);ops.push({kind:'text',lines,x,y:top,size,height,weight,color,family,align});return lines.length*height}
+ // Runs of different weight/colour wrapped as one paragraph, e.g. a bold title followed by its text.
+ function rich(runs,x,top,w,size,height,family='sans'){const lines=[[]];let used=0;for(const run of runs){ctx.font=font(size,run.weight||400,family);for(const token of String(run.text||'').match(/[A-Za-z0-9][A-Za-z0-9_+./-]*|\s+|[^\s]/gu)||[]){const tw=ctx.measureText(token).width;if(used&&used+tw>w&&!/^[，。！？；：、）)》〉】」』”’…,.!?;:%]/u.test(token)){lines.push([]);used=0;if(/^\s+$/u.test(token))continue}const current=lines[lines.length-1],last=current[current.length-1];if(last&&last.weight===run.weight&&last.color===run.color&&last.strike===run.strike)last.text+=token;else current.push({text:token,weight:run.weight||400,color:run.color||ink,strike:!!run.strike});used+=tw}}ops.push({kind:'rich',lines,x,y:top,size,height,family});return lines.length*height}
+ function spaced(value,center,top,size,weight,color,gap,family='sans'){const chars=Array.from(value),w=chars.length*size+(chars.length-1)*gap;chars.forEach((c,i)=>words(c,center-w/2+i*(size+gap),top,size+4,size,size+14,weight,color,family))}
+ function checkbox(x,top,done){rect(x,top,16,16,done?accent:T.input,4);if(!done)rect(x+1,top+1,14,14,paper,3);else words('✓',x+2,top-1,14,12,16,500,paper)}
+ function pill(value,x,top,background,color,border){const w=measure(value,12)+24;if(border)rect(x,top,w,26,border,13);rect(x+(border?1:0),top+(border?1:0),w-(border?2:0),border?24:26,background,border?12:13);words(value,x+12,top+7,w,12,18,400,color);return w}
+ const none=()=>{y+=words('本次未形成明确待办。',pad,y,inner,14,26,400,muted)};
+ const draw={
+ classic(){
+  function section(value,note){rect(pad,y+8,3,18,accent);words(value,pad+15,y,inner-170,21,34,500,ink,'serif');ctx.font=font(11);const nw=ctx.measureText(note).width+8;words(note,width-pad-nw,y+8,nw,11,18,400,muted);y+=50;line(pad,y,inner);y+=4}
+  rect(0,0,width,2,accent);words('会议纪要',pad,y,200,11,20,500,T.deep);words('MEETING NOTES',width-pad-100,y,100,11,20,400,muted,'latin');y+=36;
+  y+=words(data.topic||'会议纪要',pad,y,inner,36,52,400,ink,'serif');y+=16;
+  for(const [label,value] of [['时间',data.meeting_time],['参会人',data.participants]]){if(!value)continue;words(label,pad,y,42,11,20,500,muted);const h=words(value,pad+54,y,inner-54,12,22,400,secondary);y+=h+4}
+  y+=32+24;
+  if(data.summary){const bodyH=wrap(ctx,data.summary,inner-48-120,17,400,'serif').length*32,h=Math.max(60,bodyH)+48;rect(pad,y,inner,h,T.tint,8);words(summaryLabel,pad+24,y+24,96,17,30,500,T.deep);words(data.summary,pad+144,y+24,inner-168,17,32,400,ink,'serif');y+=h+32}
+  section(pointsLabel,`${data.points.length} 个议题`);
+  data.points.forEach((point,i)=>{y+=20;const titleH=wrap(ctx,point.title,inner-76,17,500).length*30,bodyH=wrap(ctx,point.text,inner-76,15).length*28;words(String(i+1).padStart(2,'0'),pad+5,y,52,32,44,400,accent,'number');words(point.title,pad+76,y,inner-76,17,30,500);words(point.text,pad+76,y+titleH+8,inner-76,15,28,400,secondary);y+=Math.max(48,titleH+8+bodyH)+20;line(pad,y,inner);y+=4});
+  y+=28;const done=data.todos.filter(t=>t.done).length;section(todosLabel,done?`${done} / ${data.todos.length} 已完成`:`${data.todos.length} 项行动`);y+=12;
+  if(data.todos.length){const cols=[inner-132-166,132,166],xs=[pad,pad+cols[0],pad+cols[0]+cols[1]];rect(pad,y,inner,42,T.tint,4);['事项 / 交付物','负责人','期限'].forEach((v,i)=>words(v,xs[i]+12,y+12,cols[i]-24,11,18,400,muted));y+=42;
+  for(const todo of data.todos){const values=[todo.task,todo.owner||'—',todo.deadline||'—'],sizes=[14,12,12],widths=[cols[0]-52,cols[1]-32,cols[2]-24],heights=values.map((v,i)=>wrap(ctx,v,widths[i],sizes[i]).length*(i===0?26:22)),h=Math.max(30,...heights)+40;line(pad,y,inner);checkbox(pad+12,y+21,todo.done);words(values[0],xs[0]+40,y+20,widths[0],14,26,400,todo.done?muted:ink);ctx.font=font(12);const ownerW=Math.min(ctx.measureText(values[1]).width+16,cols[1]-24);rect(xs[1]+12,y+20,ownerW,heights[1]+8,T.chip,4);words(values[1],xs[1]+20,y+24,widths[1],12,22,400,T.deep);words(values[2],xs[2]+12,y+20,widths[2],12,22,400,muted);if(todo.done){const taskLines=wrap(ctx,values[0],widths[0],14);taskLines.forEach((v,i)=>{ctx.font=font(14);line(xs[0]+40,y+32+i*26,ctx.measureText(v).width,T.done)})}y+=h}line(pad,y,inner)}else none();
+ },
+ official(){
+  y=44;spaced('会议纪要',width/2,y+7,30,700,accent,14,'serif');y+=58;rect(pad,y,inner,2,accent);rect(pad,y+4,inner,1,accent);y+=2+22;
+  y+=words(data.topic||'会议纪要',width/2,y,inner,26,40,700,ink,'serif','center');
+  const meta=[['时间',data.meeting_time],['参会人',data.participants]].filter(([,v])=>v).map(([l,v])=>l+'：'+v).join('　　');
+  if(meta)y+=12+words(meta,width/2,y+12,inner,13,24,400,secondary,'sans','center');
+  y+=20+16;
+  const heading=value=>{y+=words(value,pad,y,inner,18,32,700,ink,'serif')+6};
+  // First-line indent as an offset: Chrome trims a bracket that follows an ideographic space.
+  const paragraph=(value,weight=400)=>{const first=wrap(ctx,value,inner-32,16,weight,'serif')[0]||'',rest=String(value).slice(first.length).trimStart();words(first,pad+32,y,inner-32,16,32,weight,ink,'serif');return 32+(rest?words(rest,pad,y+32,inner,16,32,weight,ink,'serif'):0)};
+  if(data.summary){heading(summaryLabel);y+=paragraph(data.summary)+24}
+  heading(pointsLabel);
+  data.points.forEach((point,i)=>{y+=paragraph('（'+chineseNumber(i+1)+'）'+point.title,700);y+=paragraph(point.text)+10});
+  y+=24;heading(todosLabel);
+  if(!data.todos.length){y+=paragraph('本次未形成明确待办。');return}
+  const cols=[Math.round(inner*.64),Math.round(inner*.16),inner-Math.round(inner*.64)-Math.round(inner*.16)],xs=[pad,pad+cols[0],pad+cols[0]+cols[1]],rows=data.todos.map(todo=>{const values=[todo.task,todo.owner||'—',todo.deadline||'—'];return{todo,values,h:Math.max(...values.map((v,i)=>tall(v,cols[i]-24,i?14:15,26,400,'serif')))+24}}),top=y,total=42+rows.reduce((sum,r)=>sum+r.h,0);
+  rect(pad,y,inner,42,T.tint);['事项 / 交付物','负责人','期限'].forEach((v,i)=>words(v,xs[i]+cols[i]/2,y+14,cols[i]-24,13,20,700,ink,'sans','center'));y+=42;
+  for(const row of rows){line(pad,y,inner,secondary);row.values.forEach((v,i)=>{const lines=wrap(ctx,v,cols[i]-24,i?14:15,400,'serif');words(v,xs[i]+12,y+17,cols[i]-24,i?14:15,26,400,row.todo.done?muted:ink,'serif');if(row.todo.done&&!i)lines.forEach((l,n)=>line(xs[0]+12,y+17+9+n*26,measure(l,15,400,'serif'),T.done))});y+=row.h}
+  [pad,xs[1],xs[2],pad+inner-1].forEach(x=>rect(x,top,1,total,secondary));line(pad,top,inner,secondary);line(pad,top+total-1,inner,secondary);
+ },
+ cards(){
+  const banner={kind:'rect',x:0,y:0,w:width,h:0,color:accent,r:0},onAccent=T['on-accent'],soft=mix(onAccent,accent,.78),chipColor=mix(onAccent,accent,.16);ops.push(banner);y=36;
+  words('会议纪要',pad,y,200,11,20,500,soft);words('MEETING NOTES',width-pad-100,y,100,11,20,400,soft,'latin');y+=32;
+  y+=words(data.topic||'会议纪要',pad,y,inner,30,44,600,onAccent);y+=16;
+  let x=pad,rowH=0;const chips=[['时间',data.meeting_time],['参会人',data.participants]].filter(([,v])=>v);
+  for(const [label,value] of chips){const labelW=measure(label,11),room=inner-28-labelW-8,lines=wrap(ctx,value,room,12),w=28+labelW+8+Math.max(...lines.map(l=>measure(l,12))),h=lines.length*22+8;if(x>pad&&x+w>pad+inner){x=pad;y+=rowH+8;rowH=0}rect(x,y,w,h,chipColor,15);words(label,x+14,y+9,labelW+2,11,20,400,onAccent);words(value,x+14+labelW+8,y+8,room,12,22,400,onAccent);x+=w+8;rowH=Math.max(rowH,h)}
+  y+=rowH+32;banner.h=y;y+=28;
+  if(data.summary){const h=48+tall(data.summary,inner-48,16,30)+20;rect(pad,y,inner,h,T.tint,12);rect(pad,y+16,4,h-32,accent,2);words(summaryLabel,pad+24,y+20,inner-48,13,20,600,accent);words(data.summary,pad+24,y+48,inner-48,16,30,400,ink);y+=h+28}
+  const head=(value,note)=>{words(value,pad,y,inner-160,20,32,600,ink);const nw=measure(note,11)+8;words(note,width-pad-nw,y+8,nw,11,18,400,muted);y+=44};
+  head(pointsLabel,`${data.points.length} 个议题`);
+  const colW=(inner-16)/2;
+  for(let i=0;i<data.points.length;i+=2){const pair=data.points.slice(i,i+2),w=pair.length===1?inner:colW,heights=pair.map(p=>60+tall(p.title,w-40,16,28,600)+6+tall(p.text,w-40,14,24)+20),h=Math.max(...heights);
+   pair.forEach((p,j)=>{const x=pad+j*(colW+16);rect(x,y,w,h,T.tint,12);circle(x+34,y+34,14,accent);words(String(i+j+1),x+34,y+27.5,28,13,18,600,onAccent,'sans','center');const th=words(p.title,x+20,y+60,w-40,16,28,600,ink);words(p.text,x+20,y+60+th+6,w-40,14,24,400,secondary)});y+=h+16}
+  y+=12;const done=data.todos.filter(t=>t.done).length;head(todosLabel,done?`${done} / ${data.todos.length} 已完成`:`${data.todos.length} 项行动`);
+  if(!data.todos.length)return none();
+  for(const todo of data.todos){const taskH=tall(todo.task,inner-60,15,26),h=16+taskH+10+26+16;rect(pad,y,inner,h,T.tint,10);checkbox(pad+16,y+16,todo.done);rich([{text:todo.task,color:todo.done?muted:ink,strike:todo.done}],pad+44,y+16,inner-60,15,26);const ow=pill('负责人 '+(todo.owner||'—'),pad+44,y+16+taskH+10,T.chip,T.deep);pill('期限 '+(todo.deadline||'—'),pad+44+ow+8,y+16+taskH+10,paper,secondary,T.line);y+=h+10}
+ },
+ timeline(){
+  rect(0,0,width,2,accent);y=40;words('会议纪要',pad,y,200,11,20,500,T.deep);words('MEETING NOTES',width-pad-100,y,100,11,20,400,muted,'latin');y+=36;
+  y+=words(data.topic||'会议纪要',pad,y,inner,34,50,400,ink,'serif');y+=14;
+  for(const [label,value] of [['时间',data.meeting_time],['参会人',data.participants]]){if(!value)continue;words(label,pad,y,42,11,20,500,muted);y+=words(value,pad+54,y,inner-54,12,22,400,secondary)+4}
+  y+=28;
+  if(data.summary){const h=48+tall(data.summary,inner-48,16,30,400,'serif')+20;rect(pad,y,inner,h,T.tint,8);words(summaryLabel,pad+24,y+20,inner-48,13,20,600,T.deep);words(data.summary,pad+24,y+48,inner-48,16,30,400,ink,'serif');y+=h+32}
+  const head=value=>{rect(pad,y+8,3,18,accent);words(value,pad+15,y,inner-15,21,34,500,ink,'serif');y+=50};
+  const axis=pad+11,x=pad+40,w=inner-40;
+  head(pointsLabel);
+  const nodes=data.points.map(p=>{const th=tall(p.title,w,17,30,500),bh=tall(p.text,w,15,28);return{p,th,h:20+th+6+bh}});
+  let at=y;const centers=nodes.map(n=>{const c=at+7;at+=n.h+28;return c});if(nodes.length>1)rect(axis-1,centers[0],2,centers[centers.length-1]-centers[0],T.line);
+  nodes.forEach((n,i)=>{circle(axis,y+7,8,accent);circle(axis,y+7,5,paper);words('议题 '+String(i+1).padStart(2,'0'),x,y,w,11,18,500,accent);words(n.p.title,x,y+20,w,17,30,500,ink);words(n.p.text,x,y+20+n.th+6,w,15,28,400,secondary);y+=n.h+28});
+  y+=8;head(todosLabel);
+  if(!data.todos.length)return none();
+  const steps=data.todos.map(t=>({t,h:tall(t.task,w,15,26)+4+20}));at=y;const marks=steps.map(s=>{const c=at+8;at+=s.h+22;return c});
+  for(let d=marks[0];d<marks[marks.length-1];d+=8)rect(axis-1,d,2,4,T.line);
+  steps.forEach(s=>{checkbox(axis-8,y,s.t.done);const th=rich([{text:s.t.task,color:s.t.done?muted:ink,strike:s.t.done}],x,y,w,15,26);rich([{text:'负责人 ',color:muted},{text:s.t.owner||'—',color:secondary},{text:'　·　期限 ',color:muted},{text:s.t.deadline||'—',color:secondary}],x,y+th+4,w,12,20);y+=s.h+22});
+ },
+ checklist(){
+  y=44;y+=words(data.topic||'会议纪要',pad,y,inner,26,38,600,ink);y+=8;
+  const meta=[data.meeting_time,data.participants].filter(Boolean).join('　·　');if(meta)y+=words(meta,pad,y,inner,13,22,400,muted);
+  y+=32;const label=value=>{Array.from(value).forEach((c,i)=>words(c,pad+i*14,y,14,12,20,600,muted));y+=28};
+  if(data.summary){label(summaryLabel);y+=words(data.summary,pad,y,inner,15,28,400,ink)+28}
+  label(pointsLabel);
+  for(const point of data.points){circle(pad+7,y+9,3,accent);y+=rich([{text:point.title+'：',weight:600,color:ink},{text:point.text,color:secondary}],pad+20,y,inner-20,15,28)+8}
+  y+=20;label(todosLabel);
+  if(!data.todos.length)return none();
+  for(const todo of data.todos){checkbox(pad,y,todo.done);const runs=[{text:todo.task,color:todo.done?muted:ink,strike:todo.done}];if(!blank(todo.owner))runs.push({text:'　— '+todo.owner,color:muted});if(!blank(todo.deadline))runs.push({text:' · '+todo.deadline,color:muted});y+=rich(runs,pad+28,y,inner-28,15,28)+10}
+ }};
+ draw[layout]();
  y+=48;if(y>14000)throw Error('内容较长，请精简或拆分后再导出图片。');const scale=2;canvas.width=width*scale;canvas.height=Math.ceil(y)*scale;ctx.scale(scale,scale);ctx.fillStyle=paper;ctx.fillRect(0,0,width,y);ctx.textBaseline='top';
- for(const op of ops){ctx.fillStyle=op.color;if(op.kind==='rect'){ctx.beginPath();ctx.roundRect(op.x,op.y,op.w,op.h,op.r);ctx.fill()}else{ctx.font=font(op.size,op.weight,op.family);op.lines.forEach((value,i)=>ctx.fillText(value,op.x,op.y+i*op.height))}}
+ for(const op of ops){ctx.fillStyle=op.color;if(op.kind==='rect'){ctx.beginPath();ctx.roundRect(op.x,op.y,op.w,op.h,op.r);ctx.fill()}else if(op.kind==='circle'){ctx.beginPath();ctx.arc(op.x,op.y,op.r,0,Math.PI*2);ctx.fill()}else if(op.kind==='rich'){op.lines.forEach((runs,i)=>{let x=op.x;for(const run of runs){ctx.font=font(op.size,run.weight,op.family);ctx.fillStyle=run.color;ctx.fillText(run.text,x,op.y+i*op.height);const w=ctx.measureText(run.text).width;if(run.strike){ctx.fillStyle=T.done;ctx.fillRect(x,op.y+i*op.height+op.size*0.62,w,1)}x+=w}})}else{ctx.font=font(op.size,op.weight,op.family);ctx.textAlign=op.align;op.lines.forEach((value,i)=>ctx.fillText(value,op.x,op.y+i*op.height));ctx.textAlign='left'}}
  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw Error('图片编码未完成，请重试。');return{url:canvas.toDataURL('image/png'),downloadUrl:URL.createObjectURL(blob),width:canvas.width,height:canvas.height}}
 $('#export-png').onclick=async()=>{const button=$('#export-png');button.disabled=true;status('正在生成图片…');try{const png=await makePng(collect());if(currentImageObjectURL)URL.revokeObjectURL(currentImageObjectURL);currentImageObjectURL=png.downloadUrl;$('#png-preview').src=png.url;$('#download-image').href=png.downloadUrl;$('#download-image').download=filename('png');$('#export-size').textContent=`${png.width} × ${png.height} 像素`;$('#image-dialog').showModal();status('图片已生成，可预览并下载 PNG。')}catch(error){status('导出未完成：'+error.message)}finally{button.disabled=false}};
 $('#close-preview').onclick=()=>$('#image-dialog').close();

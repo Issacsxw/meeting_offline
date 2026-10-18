@@ -10,6 +10,8 @@ TEMPLATE = Path(__file__).resolve().parents[1] / 'assets/minutes.html'
 UNKNOWN_ROLE = '身份未确认'
 # Styles offered in the editor's 样式 menu; keys match data-theme in the template.
 THEMES = {'warm': '暖白陶土', 'business': '商务蓝', 'mono': '极简黑白', 'fresh': '清新绿', 'dark': '深色'}
+# Layouts offered in the 版式 menu, combinable with any theme; keys match data-layout.
+LAYOUTS = {'classic': '经典', 'official': '公文', 'cards': '卡片', 'timeline': '时间轴', 'checklist': '极简清单'}
 
 
 def render(document):
@@ -22,6 +24,8 @@ def render(document):
         raise ValueError('Summary must be text.')
     if document.get('theme', 'warm') not in THEMES:
         raise ValueError('未知样式：' + str(document.get('theme')) + '；可选 ' + '、'.join(THEMES))
+    if document.get('layout', 'classic') not in LAYOUTS:
+        raise ValueError('未知版式：' + str(document.get('layout')) + '；可选 ' + '、'.join(LAYOUTS))
     for field, required in [('points', ('title', 'text')), ('todos', ('task', 'owner', 'deadline'))]:
         if not isinstance(document.get(field), list):
             raise ValueError('Missing list: ' + field)
@@ -53,7 +57,7 @@ def shown_name(speaker, display_names=None):
     return (display_names or {}).get(name, name)
 
 
-def from_workspace(state, sid, section, corrections, protected=(), display_names=None, theme='warm'):
+def from_workspace(state, sid, section, corrections, protected=(), display_names=None, theme='warm', layout='classic'):
     """Use assistant-authored concise prose; never infer owners or summaries here.
 
     display_names is the device preference mapping a confirmed name to how it reads in the minutes."""
@@ -104,7 +108,7 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     participants = '、'.join(p['shown'] for p in people)
     if unknown:
         participants = (participants + '等' if participants else '') + str(len(people) + unknown) + '人'
-    return {'schema_version': 2, 'source_id': sid, 'theme': theme,
+    return {'schema_version': 2, 'source_id': sid, 'theme': theme, 'layout': layout,
         'topic': corrected(brief.get('topic') or section.get('title') or '会议纪要'),
         'meeting_time': str(section.get('meeting_time') or section.get('meeting_date') or ''),
         'participants': participants, 'people': people,
@@ -117,11 +121,14 @@ def main():
     parser.add_argument('--document', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--no-png', action='store_true', help='只生成 HTML，不自动导出同名 PNG')
-    parser.add_argument('--theme', choices=THEMES, help='纪要样式：' + '、'.join(f'{k}（{v}）' for k, v in THEMES.items()))
+    parser.add_argument('--theme', choices=THEMES, help='纪要配色：' + '、'.join(f'{k}（{v}）' for k, v in THEMES.items()))
+    parser.add_argument('--layout', choices=LAYOUTS, help='纪要版式：' + '、'.join(f'{k}（{v}）' for k, v in LAYOUTS.items()))
     args = parser.parse_args()
     document = json.loads(args.document.read_text(encoding='utf-8'))
     if args.theme:
         document['theme'] = args.theme
+    if args.layout:
+        document['layout'] = args.layout
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render(document), encoding='utf-8')
     print(json.dumps({'html': str(args.out.resolve()), **({} if args.no_png else png_for(args.out))},

@@ -142,6 +142,18 @@ class BrowserTests(unittest.TestCase):
                 data = Path(render_png.render(html)['png']).read_bytes()
                 self.assertEqual(png_pixel(data, 40, 400), paper, theme)
 
+    def test_every_layout_exports_an_image(self):
+        document = {**DOCUMENT, 'points': DOCUMENT['points'] * 3, 'todos': DOCUMENT['todos'] + [
+            {'task': '已完成事项', 'owner': '—', 'deadline': '—', 'done': True}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            for layout in minutes_html.LAYOUTS:
+                html = Path(tmp) / (layout + '.html')
+                html.write_text(minutes_html.render({**document, 'layout': layout, 'theme': 'dark'}), encoding='utf-8')
+                data = Path(render_png.render(html)['png']).read_bytes()
+                width, height = render_png.size(data)
+                self.assertEqual(width, 1440 if layout == 'checklist' else 1840, layout)
+                self.assertEqual(png_pixel(data, 4, height - 10), (31, 30, 28), layout)  # page background follows the theme
+
     def test_page_error_is_reported(self):
         long_doc = {**DOCUMENT, 'points': [{'title': '议题', 'text': '很长的内容。' * 400}] * 12}
         with tempfile.TemporaryDirectory() as tmp:

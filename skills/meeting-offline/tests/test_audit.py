@@ -124,6 +124,32 @@ class AuditFlowTests(unittest.TestCase):
         self.assertIn('### 1. 首发价　`已决定`', Path(files['md']).read_text(encoding='utf-8'))
         self.assertIn('"status": "decided"', Path(files['html']).read_text(encoding='utf-8'))
 
+    def test_fallback_viewpoints_cannot_publish_outside_reader_evidence_checks(self):
+        state = w.read(self.root / 'state.json')
+        state['speakers'][0]['core_points'] = ['产品报价 999 元。']
+        w.write(self.root / 'state.json', state)
+        for reader in (None, {}, {'points': []}):
+            with self.subTest(reader=reader):
+                section = {'title': '报价会'}
+                if reader is not None:
+                    section['reader'] = reader
+                w.set_analysis(self.root, {'sources': {'m': section}}, self.revision())
+                files = w.read(self.root / 'exports/latest.json')['files']['m']
+                self.assertIn('999', Path(files['html']).read_text())  # still available as a draft preview
+                with self.assertRaisesRegex(ValueError, 'reader.points'):
+                    w.publish(self.root)
+                self.assertFalse((self.root / 'publication.json').exists())
+        # Once the visible prose has evidence, the existing deterministic checks apply to it.
+        section['reader'] = {'points': [{'title': '价格', 'text': '首发价 999 元。', 'status': 'direction', 'evidence': [0]}]}
+        w.set_analysis(self.root, {'sources': {'m': section}}, self.revision())
+        self.assertGreater(audit.report(self.root)['unresolved'], 0)
+        with self.assertRaisesRegex(ValueError, '还没核对完'):
+            w.publish(self.root)
+        section['reader']['points'][0]['text'] = '首发价 229 元。'
+        w.set_analysis(self.root, {'sources': {'m': section}}, self.revision())
+        self.assertEqual(audit.report(self.root)['unresolved'], 0)
+        self.assertIn('m', w.publish(self.root)['files'])
+
 
 if __name__ == '__main__':
     unittest.main()

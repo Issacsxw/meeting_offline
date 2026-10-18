@@ -589,11 +589,16 @@ def publish(root, source_ids=None, png_overrides=None):
         targets = source_ids or [sid for sid, f in latest['files'].items() if f.get('html')]
         if not targets:
             raise ValueError('还没有可发布的纪要 HTML（角色确认并写入 analysis 后才会生成）。')
+        sections = read(root / 'analysis.json')['sources']
         files = {}
         for sid in targets:
             exported = latest['files'].get(sid, {})
             if not exported.get('html'):
                 raise ValueError('来源 ' + sid + ' 还没有纪要 HTML。')
+            if (not sections.get(sid, {}).get('reader', {}).get('points')
+                    and any(s.get('core_points') for s in state['speakers']
+                            if s['source_id'] == sid and not s.get('ignored_by_user'))):
+                raise ValueError('来源 ' + sid + ' 仍在使用未绑定逐条证据的观点预览；请补全 reader.points 及 evidence，核对后再发布。')
             png = png_overrides.get(sid) or exported.get('png')
             if not png:
                 raise ValueError('来源 ' + sid + ' 没有 PNG：' + exported.get('png_error', '')

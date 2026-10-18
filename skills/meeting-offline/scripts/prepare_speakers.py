@@ -50,9 +50,9 @@ def prepare(sources):
         segments = data.get('segments')
         if not isinstance(segments, list) or not segments:
             raise ValueError('Expected nonempty transcript segments: ' + str(path))
-        state['sources'].append({'source_id': source_id, 'path': str(path),
-                                 'duration_seconds': data.get('duration_seconds'),
-                                 'model': data.get('model'), 'separation': separation(segments)})
+        source = {'source_id': source_id, 'path': str(path), 'duration_seconds': data.get('duration_seconds'),
+                  'model': data.get('model')}
+        state['sources'].append(source)
         grouped = {}
         for index, segment in enumerate(segments):
             if not isinstance(segment, dict) or not isinstance(segment.get('text'), str):
@@ -80,6 +80,7 @@ def prepare(sources):
             grouped[group_key]['utterances'].append({
                 'source_segment_index': index, 'start_ms': start,
                 'end_ms': end, 'text': segment['text']})
+        source['separation'] = separation(segments)  # after the checks above: segments are known to be well formed
         for speaker in grouped.values():
             state['speakers'].append(speaker)
             state['pending_role_keys'].append(speaker['key'])

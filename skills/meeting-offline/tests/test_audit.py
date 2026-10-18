@@ -94,10 +94,15 @@ class AuditFlowTests(unittest.TestCase):
         # any later change to the minutes needs a fresh check; settled items carry over
         revision = self.revision()
         w.save_roles(self.root, [{'key': 'm-B', 'name': '陈思远', 'role_title': '财务', 'entity_type': 'person', 'scope': '测试'}], revision)
-        with self.assertRaisesRegex(ValueError, '还没核对完'):
+        with self.assertRaisesRegex(ValueError, '核对之后又改过'):
             w.publish(self.root)
         self.assertEqual(audit.resolve(self.root, {}, self.revision())['status'], 'checked')
         w.publish(self.root)
+        # a confirmation belongs to the wording it was given for
+        w.set_analysis(self.root, self.analysis(price='229'), self.revision())
+        analysis = self.analysis(price='229'); analysis['sources']['m']['reader']['todos'] = [{'action_index': 0, 'deadline': '下下周五'}]
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertEqual(audit.report(self.root)['unresolved'], 1)
 
     def test_status_is_required_and_shown_in_the_minutes(self):
         analysis = self.analysis(price='229')

@@ -1,6 +1,7 @@
 """Speech the separation could not attribute never becomes somebody's words or somebody's task."""
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -45,9 +46,15 @@ class SeparationTests(unittest.TestCase):
                                  {'key': 'm-UNASSIGNED', 'keep_unknown': True}], self.revision())
         speaker = next(s for s in w.read(self.root / 'state.json')['speakers'] if s['key'] == 'm-UNASSIGNED')
         self.assertTrue(speaker['accepted_unknown'])
-        # a one-person recording whose separation failed: allowed once the user confirms it
-        w.save_roles(self.root, [{'key': 'm-UNASSIGNED', 'name': '王五', 'entity_type': 'person', 'scope': '测试',
-                                  'confirm_single_speaker': True}], self.revision())
+        # a one-person recording whose separation failed: allowed once the user confirms it, from the chat or the page
+        self.assertTrue(next(s for s in w.public_state(self.root)['speakers'] if s['key'] == 'm-UNASSIGNED')['diarization_unassigned'])
+        mapping = self.base / 'roles.json'
+        w.write(mapping, [{'key': 'm-UNASSIGNED', 'name': '王五', 'entity_type': 'person', 'scope': '测试', 'confirm_single_speaker': True}])
+        run = subprocess.run([sys.executable, str(Path(w.__file__)), 'roles', '--workspace', str(self.root), '--file', str(mapping),
+                              '--revision', str(self.revision())], capture_output=True, text=True, env=os.environ)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        roles = memory.read_store(device_context.paths()['memory'])['roles']
+        self.assertIn('用户在对话中明确确认', next(r for r in roles if r['name'] == '王五')['confirmation'])
 
     def test_unassigned_speech_is_never_an_owner_or_a_participant(self):
         w.save_roles(self.root, [{'key': 'm-A', 'name': '林悦', 'entity_type': 'person', 'scope': '测试'},

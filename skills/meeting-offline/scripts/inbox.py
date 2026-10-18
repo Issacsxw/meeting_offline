@@ -134,8 +134,10 @@ def prepare_workspace(audio, result, sha):
     import prepare_speakers
     import workspace
     root = device_context.paths()['meetings'] / ('inbox-' + sha[:12])
-    if root.exists():
+    if (root / 'state.json').exists():
         return root
+    if root.exists():  # an earlier run stopped half way through creating it; only this inbox ever writes here
+        shutil.rmtree(root)
     state = prepare_speakers.prepare(['1=' + result['result_path']])
     state_path = device_context.paths()['data_root'] / 'inbox-states' / (sha[:12] + '.json')
     workspace.write(state_path, state)
@@ -186,12 +188,16 @@ def one_pass(folder, config, clock):
     for item in items.values():  # this pass holds the lock, so a "transcribing" item is from a run that died
         if item.get('status') == 'transcribing':
             item.update(status='failed', error='上次处理被中断（电脑休眠或进程被结束），会自动重试。')
-    seen = {i.get('sha256') for i in items.values() if i.get('sha256')} | known_recordings()
+    # a recording that failed or went away does not block the same audio arriving under another name
+    seen = {i['sha256'] for i in items.values() if i.get('sha256') and i['status'] in ('queued', 'transcribing', 'ready')} | known_recordings()
     try:
         entries = list(candidates(folder))
     except PermissionError:
-        notify('会议录音', f'没有权限读取“{folder.name}”文件夹。请在 系统设置 → 隐私与安全性 → 文件与文件夹 里允许 Python 访问。')
+        if not queue.get('permission_denied'):  # once, not every two minutes
+            notify('会议录音', f'没有权限读取“{folder.name}”文件夹。请在 系统设置 → 隐私与安全性 → 文件与文件夹 里允许 Python 访问。')
+            queue['permission_denied'] = now(); save_queue(queue)
         return {'folder': str(folder), 'error': 'permission'}
+    queue.pop('permission_denied', None)
     for path, cloud in entries:
         key = str(path if not cloud else path.with_name(path.name[1:-7]))
         item = items.setdefault(key, arrival(key))
@@ -214,8 +220,11 @@ def one_pass(folder, config, clock):
         if item['status'] != 'syncing':
             continue
         item.pop('note', None)
-        if item.get('fingerprint') != fingerprint or clock() - stat.st_mtime < SETTLE_S:
-            item['fingerprint'] = fingerprint  # still being written or synced; look again next pass
+        if item.get('fingerprint') != fingerprint:
+            item.update(fingerprint=fingerprint, steady_since=clock())  # still being written or synced; look again later
+            continue
+        # copies keep the original modification time, so also time how long the file has looked the same
+        if clock() - item.get('steady_since', 0) < SETTLE_S or clock() - stat.st_mtime < SETTLE_S:
             continue
         try:
             sha = digest(path)
@@ -284,7 +293,7 @@ def setup(folder, engine='funasr', model=None, dry_run=False):
         raise ValueError(f'本地识别引擎 {engine} 还没装好（缺少 {", ".join(missing)}）；先按 transcribe_local.py --check 安装。')
     agent = plist(folder)
     if dry_run:
-        return {'folder': str(folder), 'engine': engine, 'agent': agent}
+        return {'folder': str(folder), 'engine': engine, 'python': sys.executable, 'agent': agent}
     folder.mkdir(parents=True, exist_ok=True)
     obsidian.write_preference({'inbox': {'folder': str(folder), 'engine': engine, 'model': model, 'local_only': True}})
     if sys.platform == 'darwin':
@@ -292,11 +301,15 @@ def setup(folder, engine='funasr', model=None, dry_run=False):
         with target.open('wb') as handle:
             plistlib.dump(agent, handle)
         subprocess.run(['launchctl', 'bootout', f'gui/{os.getuid()}', str(target)], capture_output=True)
-        loaded = subprocess.run(['launchctl', 'bootstrap', f'gui/{os.getuid()}', str(target)], capture_output=True, text=True)
-        if loaded.returncode:
+        for _ in range(10):  # bootout finishes in the background; bootstrap fails (error 5) until it has
+            loaded = subprocess.run(['launchctl', 'bootstrap', f'gui/{os.getuid()}', str(target)], capture_output=True, text=True)
+            if not loaded.returncode:
+                break
+            time.sleep(1)
+        else:
             raise ValueError('后台任务没能启动：' + (loaded.stderr.strip() or '未知原因'))
-        return {'folder': str(folder), 'engine': engine, 'agent': str(target), 'mode': 'launchd'}
-    return {'folder': str(folder), 'engine': engine, 'mode': 'manual',
+        return {'folder': str(folder), 'engine': engine, 'python': sys.executable, 'agent': str(target), 'mode': 'launchd'}
+    return {'folder': str(folder), 'engine': engine, 'python': sys.executable, 'mode': 'manual',
             'note': '这台电脑不是 macOS：用 inbox.py watch 在终端里运行，或用系统的计划任务定时运行 inbox.py run。'}
 
 
@@ -327,12 +340,31 @@ def main():
             result = status()
         elif args.command == 'watch':
             while True:
-                run_once(); time.sleep(max(15, args.every))
+                print(summary(run_once()), flush=True); time.sleep(max(15, args.every))
         else:
-            result = run_once()
+            trim_log()
+            print(summary(run_once()))  # launchd appends this to inbox.log on every pass: one line, not the queue
+            return
     except (ValueError, OSError) as error:
         parser.exit(2, str(error) + '\n')
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2); print()
+
+
+def summary(result):
+    counts = {}
+    for item in result.get('items', []):
+        counts[item['status']] = counts.get(item['status'], 0) + 1
+    extra = result.get('note') or result.get('error') or ''
+    return f'{now()} ' + ' '.join(f'{k}={v}' for k, v in sorted(counts.items())) + (f' {extra}' if extra else '')
+
+
+def trim_log(limit=1 << 20):
+    log = device_context.paths()['data_root'] / 'inbox.log'
+    try:
+        if log.stat().st_size > limit:
+            log.replace(log.with_name('inbox.log.old'))
+    except OSError:
+        pass
 
 
 if __name__ == '__main__':

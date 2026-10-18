@@ -194,14 +194,14 @@ def stage_path(sha, name):
     return device_context.paths()['jobs'] / 'local' / f'{sha[:24]}-{name}.json'
 
 
-def load_json(path):
+def load_json(path, needs):
     """A cached file, or None when missing or damaged (an interrupted write); damaged files are set aside."""
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
-        if not isinstance(data, dict):
-            raise ValueError('not an object')
+        if not isinstance(data, dict) or not isinstance(data.get(needs), list):
+            raise ValueError('not a saved result')
     except (ValueError, OSError):
         broken = path.with_name(path.name + '.damaged')
         path.replace(broken)
@@ -229,7 +229,7 @@ def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(),
         segmentation = embedding = None
     tag = hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else 'nohw'
     asr_path, samples = stage_path(sha, f'whisper-{model}-{tag}-text'), None
-    saved = load_json(asr_path)
+    saved = load_json(asr_path, 'pieces')
     if saved:
         pieces = [tuple(p) for p in saved['pieces']]
         note('复用已保存的转写文字，直接进行说话人分离。')
@@ -246,7 +246,7 @@ def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(),
             pieces += [(w.start, w.end, w.word) for w in words] if words else [(part.start, part.end, part.text)]
         save_json(asr_path, {'pieces': pieces})
     turns_path = stage_path(sha, f'sherpa-{speakers or "auto"}-speakers')
-    saved = load_json(turns_path)
+    saved = load_json(turns_path, 'turns')
     if saved:
         turns = [tuple(t) for t in saved['turns']]
     elif segmentation is None:
@@ -292,9 +292,13 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
     sha = file_digest(audio)
     hotwords = list(hotwords)
     cached = cache_path(sha, engine, model, speakers, hotwords)
-    result = None if force else load_json(cached)
+    result = None if force else load_json(cached, 'segments')
     if result:
-        return {**with_separation(result), 'result_path': str(cached), 'reused': True}
+        result = with_separation(result)
+        # a result made with --allow-unseparated is not the answer to a normal run: try the separation again
+        # (the text is checkpointed, so only that step runs)
+        if not (engine == 'whisper' and result['speaker_separation'] == 'none' and not allow_unseparated):
+            return {**result, 'result_path': str(cached), 'reused': True}
     started = datetime.now(timezone.utc)
     note(f'开始本地识别（{ENGINES[engine]["name"]}）。首次运行会先下载模型；录音不会离开这台电脑。')
     used, segments = (run_funasr(audio, speakers, device, hotwords) if engine == 'funasr'

@@ -22,7 +22,7 @@ class InboxTests(unittest.TestCase):
         self.folder = self.base / '会议录音'; self.folder.mkdir()
         self.calls, self.failures = [], 0
         self.fake = mock.patch.object(transcribe_local, 'transcribe', side_effect=self.transcribe); self.fake.start()
-        self.notes = []
+        self.notes, self.t = [], time.time()
         self.notify = mock.patch.object(inbox, 'notify', side_effect=lambda title, msg: self.notes.append(msg)); self.notify.start()
 
     def tearDown(self):
@@ -44,8 +44,9 @@ class InboxTests(unittest.TestCase):
         os.utime(path, (time.time() - age, time.time() - age))
         return path
 
-    def run_pass(self):
-        return inbox.run_once(self.folder)
+    def run_pass(self, step=30):
+        self.t += step  # passes are normally minutes apart
+        return inbox.run_once(self.folder, clock=lambda: self.t)
 
     def status_of(self, name):
         return next(i['status'] for i in inbox.status()['items'] if i['name'] == name)
@@ -73,9 +74,9 @@ class InboxTests(unittest.TestCase):
         path.write_bytes(b'part-and-more'); os.utime(path, (time.time() - 60, time.time() - 60))
         self.run_pass()
         self.assertEqual(self.status_of('长会.m4a'), 'syncing')
-        self.drop('刚存的.m4a', age=1)  # modified a moment ago
-        self.run_pass(); self.run_pass()
-        self.assertEqual(self.status_of('刚存的.m4a'), 'syncing')
+        self.drop('拷进来的.m4a', age=3600)  # a copy keeps its old modification time, so time it from arrival
+        self.run_pass(step=5); self.run_pass(step=5)
+        self.assertEqual(self.status_of('拷进来的.m4a'), 'syncing')
         (self.folder / '.云端.m4a.icloud').write_bytes(b'stub')  # not downloaded from iCloud yet
         self.run_pass()
         item = next(i for i in inbox.status()['items'] if i['name'] == '云端.m4a')
@@ -100,6 +101,27 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(self.status_of('转走了.m4a'), 'gone')
         self.drop('转走了.m4a', b'third', age=60); self.run_pass(); self.run_pass()
         self.assertEqual(self.status_of('转走了.m4a'), 'ready')  # put back: picked up again
+
+    def test_a_failed_recording_renamed_is_tried_under_its_new_name(self):
+        self.failures = 1
+        self.drop('新录音 3.m4a')
+        self.run_pass(); self.run_pass()
+        self.assertEqual(self.status_of('新录音 3.m4a'), 'failed')
+        (self.folder / '新录音 3.m4a').rename(self.folder / '周会.m4a')
+        self.run_pass(); self.run_pass()
+        self.assertEqual((self.status_of('周会.m4a'), self.status_of('新录音 3.m4a')), ('ready', 'gone'))
+
+    def test_a_half_made_workspace_is_rebuilt_and_problems_are_told_once(self):
+        path = self.drop('周会.m4a')
+        half = device_context.paths()['meetings'] / ('inbox-' + inbox.digest(path)[:12]); half.mkdir(parents=True)
+        self.run_pass(); self.run_pass()
+        self.assertTrue((half / 'state.json').exists())
+        with mock.patch.object(inbox, 'candidates', side_effect=PermissionError):
+            for _ in range(3):
+                self.assertEqual(self.run_pass()['error'], 'permission')
+        self.assertEqual(sum('没有权限' in n for n in self.notes), 1)
+        line = inbox.summary(inbox.status())
+        self.assertIn('ready=1', line); self.assertNotIn('\n', line)  # the agent log gets one line per pass
 
     def test_failures_are_retried_then_reported(self):
         self.failures = 5

@@ -6,7 +6,7 @@
 - 给每个文件/会议一个稳定来源编号；每位说话人的标识由“来源 + 原始说话人 ID”组成。不同文件的 A 或 speaker 0 默认不是同一个人，不自动合并成同一场会议。
 - 未标注说话人的文本先标记为“说话人未分离”，不能仅凭语气分出身份。分离明显混乱时，保留受影响片段并请用户纠正。
 - 转写结果和 `prepare_speakers.py` 输出里的 `separation` 说明分离做到了什么程度：`voice`（至少 90% 的发言分出了说话人）、`partial`（只分出一部分，`coverage` 是比例）、`none`（完全没分出）。不是 `voice` 时，出卡片前先如实告诉用户，例如“只有 62% 的发言分出了说话人，其余标为说话人未分离”，不要说“分离成功”或报“1 位发言人”。
-- “说话人未分离”（`<来源>-UNASSIGNED`）不是一个人，卡片上照样列出这些原话，但不能认领成某一个人，也不能作为负责人或提议人的来源；`workspace.py` 会拒绝。只有用户明确说“这部分都是我/都是某某”（例如单人录音分离失败），映射里才加 `"confirm_single_speaker": true`。否则用 `keep_unknown`，需要时请用户回听后逐段指认。
+- “说话人未分离”（`<来源>-UNASSIGNED`）不是一个人，卡片上照样列出这些原话，但不能认领成某一个人，也不能作为负责人或提议人的来源；`workspace.py` 会拒绝。只有用户明确说“这部分都是我/都是某某”（例如单人录音分离失败），映射里才加 `"confirm_single_speaker": true`（复核页面上是这张卡片的“这部分都是同一个人说的”勾选项）。否则用 `keep_unknown`，需要时请用户回听后逐段指认。
 - Qwen 结果可用辅助脚本按来源和说话人准备证据与工作状态：
 
   ```bash
@@ -37,6 +37,22 @@
 4-B =
 5-A =
 ```
+
+用户回复后，把映射写成 JSON 用 `workspace.py roles` 写入工作区（同时积累到本地库）：
+
+```bash
+python3 <skill-dir>/scripts/workspace.py roles --workspace W --file roles.json --revision N
+```
+
+```json
+[
+  {"key": "4-A", "name": "张三", "role_title": "产品经理", "entity_type": "person", "scope": "示例公司"},
+  {"key": "4-B", "profile_id": "person-…"},
+  {"key": "5-A", "keep_unknown": true}
+]
+```
+
+`entity_type` 是 `person`（具体的人）或 `role`（只有角色称呼）；`profile_id` 用于用户确认了本地库里已有的人；`keep_unknown` 表示用户明确保留未知。
 
 本地库有相关记录时，按 [本地积累](memory.md) 预填候选并标明待确认，不让用户从空白重填。普通聊天内认领即可，需要回听或页面操作时再用 [本地复核页面](local-review.md)。
 

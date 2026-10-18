@@ -173,7 +173,7 @@ def confirmed_memory_upsert(store, kind, entry):
                        check=True, capture_output=True, text=True)
 
 
-def save_roles(root, mappings, expected):
+def save_roles(root, mappings, expected, via='page'):
     root = Path(root)
     with locked(root):
         state = read(root / 'state.json'); check_revision(state, expected)
@@ -192,7 +192,8 @@ def save_roles(root, mappings, expected):
             if speakers[mapping['key']].get('diarization_unassigned') and mapping.get('confirm_single_speaker') is not True:
                 # Speech the separation could not attribute may mix several people.
                 raise ValueError('“说话人未分离”的部分可能混有多人的发言，不能直接认领成一个人。'
-                                 '只有用户明确说这部分都是同一个人时，才加 confirm_single_speaker。')
+                                 '确定这部分都是同一个人说的，请在复核页面勾选“这部分都是同一个人说的”'
+                                 '（在对话里确认的，映射里加 confirm_single_speaker）；否则选“明确保留身份未确认”。')
             profile_id = mapping.get('profile_id')
             if profile_id:
                 if profile_id not in profiles:
@@ -211,7 +212,7 @@ def save_roles(root, mappings, expected):
                 profile = profiles.get(profile_id) or {
                     'id': profile_id, 'entity_type': entity_type, 'name': name,
                     'scope': scope, 'role_title': role, 'aliases': [],
-                    'confirmation': '用户在本地说话人复核页明确填写并保存：' + mapping['key']}
+                    'confirmation': ('用户在本地说话人复核页明确填写并保存：' if via == 'page' else '用户在对话中明确确认：') + mapping['key']}
                 new_profiles.append(profile)
             resolved.append((mapping['key'], profile))
         for profile in new_profiles:
@@ -221,7 +222,7 @@ def save_roles(root, mappings, expected):
                     'id': 'name-' + digest([profile['scope'], profile['name']])[:16],
                     'canonical': profile['name'], 'scope': profile['scope'], 'aliases': [],
                     'definition': profile.get('role_title', ''),
-                    'confirmation': '用户在本地角色复核页明确选择具体人物并填写姓名。'})
+                    'confirmation': '用户在本地角色复核页明确选择具体人物并填写姓名。' if via == 'page' else '用户在对话中明确确认具体人物的姓名。'})
         for key, profile in resolved:
             speaker = speakers[key]
             if profile is None:
@@ -399,7 +400,7 @@ def public_state(root):
     mem = memory.read_store(memory_path(state))
     return {'revision': state['revision'], 'status': state['status'],
         'sources': [{'source_id': s['source_id'], 'title': s['title'], 'has_audio': bool(s.get('audio_path'))} for s in state['sources']],
-        'speakers': [{k: s.get(k) for k in ('key', 'source_id', 'role_name', 'role_confirmed', 'identity_group', 'focus', 'core_points', 'recognition_quotes', 'candidate_role')} | {'clips': clips_for(s)} for s in state['speakers']],
+        'speakers': [{k: s.get(k) for k in ('key', 'source_id', 'role_name', 'role_confirmed', 'identity_group', 'focus', 'core_points', 'recognition_quotes', 'candidate_role', 'diarization_unassigned')} | {'clips': clips_for(s)} for s in state['speakers']],
         'roles': [p for p in mem['roles'] if p.get('active', True)],
         'terms': [t for t in mem['terms'] if t.get('active', True)],
         'corrections': read(root / 'corrections.json'),
@@ -578,6 +579,9 @@ def publish(root, source_ids=None, png_overrides=None):
             raise ValueError('导出不是最新版本；请先运行 export。')
         if not audit.is_checked(root):
             open_ = audit.report(root)['unresolved']
+            if not open_:  # every item was settled, but for an earlier export
+                raise ValueError('纪要在核对之后又改过：先运行 workspace.py audit 看一遍，没有新问题就用 '
+                                 'audit --resolve 传入 {} 确认这一版，再发布。')
             raise ValueError(f'纪要还没核对完：有 {open_} 处内容和原话对不上或没登记处理结果。'
                              '先运行 workspace.py audit，改正文或登记确认后再发布。')
         png_overrides = png_overrides or {}
@@ -622,6 +626,7 @@ def main():
     a = sub.add_parser('analysis'); a.add_argument('--workspace', required=True); a.add_argument('--file', required=True); a.add_argument('--revision', required=True, type=int)
     c = sub.add_parser('candidates'); c.add_argument('--workspace', required=True); c.add_argument('--file', required=True); c.add_argument('--revision', required=True, type=int)
     ct = sub.add_parser('confirm-terms', help='一次应用用户在对话里确认的术语修正'); ct.add_argument('--workspace', required=True); ct.add_argument('--file', required=True); ct.add_argument('--revision', required=True, type=int)
+    r = sub.add_parser('roles', help='应用用户在对话里给出的说话人映射'); r.add_argument('--workspace', required=True); r.add_argument('--file', required=True); r.add_argument('--revision', required=True, type=int)
     pub = sub.add_parser('publish'); pub.add_argument('--workspace', required=True); pub.add_argument('--source', action='append'); pub.add_argument('--png', action='append', help='SID=PATH，浏览器内手动导出的 PNG')
     au = sub.add_parser('audit', help='核对纪要内容和引用原话是否一致'); au.add_argument('--workspace', required=True)
     au.add_argument('--resolve', help='登记处理结果的 JSON：{问题 id: {resolution, note}}'); au.add_argument('--revision', type=int)
@@ -637,6 +642,7 @@ def main():
         elif args.command == 'confirm-terms':
             import term_review
             result = term_review.confirm_batch(args.workspace, read(args.file), args.revision)
+        elif args.command == 'roles': result = save_roles(args.workspace, read(args.file), args.revision, via='chat')
         elif args.command == 'publish': result = publish(args.workspace, args.source, {k: str(v) for k, v in pairs(args.png).items()})
         elif args.command == 'hotwords': result = hotwords(args.workspace, args.term, args.out, args.weight)
         elif args.command == 'audit':

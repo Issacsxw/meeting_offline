@@ -168,6 +168,10 @@ class LocalTests(unittest.TestCase):
         modules, models = self.whisper(model_error='下载说话人分离模型失败')
         with modules, models:  # with consent, the text is still useful
             self.assertEqual(local.transcribe(self.audio, 'whisper', model='small', allow_unseparated=True)['speaker_separation'], 'none')
+        modules, models = self.whisper()
+        with modules, models:  # once the models download, a normal run separates instead of reusing that result
+            result = local.transcribe(self.audio, 'whisper', model='small')
+        self.assertEqual((result['speaker_separation'], self.runs), ('voice', []))
 
     def test_a_failed_separation_keeps_the_transcription_for_the_next_run(self):
         modules, models = self.whisper(fail='onnx runtime error')
@@ -188,6 +192,9 @@ class LocalTests(unittest.TestCase):
         self.assertFalse(again['reused'])
         self.assertTrue(Path(first['result_path'] + '.damaged').exists())
         self.assertEqual(len([c for c in FakeAutoModel.calls if c[0] == 'generate']), 2)
+        Path(first['result_path']).write_text('{"model": "x"}', encoding='utf-8')  # readable, but not a result
+        with self.fake_funasr():
+            self.assertFalse(local.transcribe(self.audio, 'funasr')['reused'])
 
     def test_old_caches_get_an_honest_status(self):
         with self.fake_funasr():

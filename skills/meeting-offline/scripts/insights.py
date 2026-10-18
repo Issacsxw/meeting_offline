@@ -78,31 +78,39 @@ def history(root, meetings=5, quotes=12):
             people[speaker['identity_group']] = {'speaker': speaker['key'], 'name': minutes_html.shown_name(speaker),
                                                  'identity_group': speaker['identity_group'], 'meetings': []}
     for other, other_state in workspaces(root):
-        corrections = w.read(other / 'corrections.json') if (other / 'corrections.json').exists() else []
-        previous = w.read(other / 'insights.json') if (other / 'insights.json').exists() else {'sources': {}}
-        for speaker in other_state['speakers']:
-            person = people.get(speaker.get('identity_group'))
-            if not person or not confirmed(speaker):
-                continue
-            sid = speaker['source_id']
-            label = meeting_label(other, other_state, sid)
-            section = label.pop('analysis')
-            segments = w.read(next(s for s in other_state['sources'] if s['source_id'] == sid)['path'])['segments']
-            own = [(i, s) for i, s in enumerate(segments) if speaker_of(other_state, sid, s) is speaker and len(s['text'].strip()) >= 12]
-            step = max(1, len(own) // quotes) if own else 1
-            person['meetings'].append({
-                'meeting': other.name, 'source_id': sid, 'speaker': speaker['key'], **label,
-                'created_at': other_state.get('created_at'),
-                'points': [p['title'] + '：' + p['text'] for p in section.get('reader', {}).get('points', []) if speaker['key'] in p.get('attribution', [])],
-                'actions': [a['task'] for a in section.get('actions', []) if a.get('owner') == speaker['key']],
-                'insight': next((p for p in previous['sources'].get(sid, {}).get('people', []) if p.get('speaker') == speaker['key']), None),
-                'quotes': [{'segment': i, 'time': w.timestamp(s['start_ms']), 'text': w.corrected_text(s['text'], sid, i, corrections)}
-                           for i, s in own[::step][:quotes]]})
+        try:
+            person_meetings(other, other_state, people, quotes)
+        except (ValueError, OSError, KeyError, StopIteration):
+            continue  # an older or damaged workspace is skipped rather than ending the whole history
     for person in people.values():
         person['meetings'].sort(key=lambda m: (m['meeting_date'] or '', m['created_at'] or ''), reverse=True)
         del person['meetings'][meetings:]
     return {'workspace': root.name, 'people': list(people.values()),
             'note': '只包含本机工作区里、由用户确认为同一人的会议；没有记录不代表没有开过会。'}
+
+
+def person_meetings(other, other_state, people, quotes):
+    """Add this workspace's meetings to each matching person in people."""
+    corrections = w.read(other / 'corrections.json') if (other / 'corrections.json').exists() else []
+    previous = w.read(other / 'insights.json') if (other / 'insights.json').exists() else {'sources': {}}
+    for speaker in other_state['speakers']:
+        person = people.get(speaker.get('identity_group'))
+        if not person or not confirmed(speaker):
+            continue
+        sid = speaker['source_id']
+        label = meeting_label(other, other_state, sid)
+        section = label.pop('analysis')
+        segments = w.read(next(s for s in other_state['sources'] if s['source_id'] == sid)['path'])['segments']
+        own = [(i, s) for i, s in enumerate(segments) if speaker_of(other_state, sid, s) is speaker and len(s['text'].strip()) >= 12]
+        step = max(1, len(own) // quotes) if own else 1
+        person['meetings'].append({
+            'meeting': other.name, 'source_id': sid, 'speaker': speaker['key'], **label,
+            'created_at': other_state.get('created_at'),
+            'points': [p['title'] + '：' + p['text'] for p in section.get('reader', {}).get('points', []) if speaker['key'] in p.get('attribution', [])],
+            'actions': [a['task'] for a in section.get('actions', []) if a.get('owner') == speaker['key']],
+            'insight': next((p for p in previous['sources'].get(sid, {}).get('people', []) if p.get('speaker') == speaker['key']), None),
+            'quotes': [{'segment': i, 'time': w.timestamp(s['start_ms']), 'text': w.corrected_text(s['text'], sid, i, corrections)}
+                       for i, s in own[::step][:quotes]]})
 
 
 def resolve_past(root, ref, identity):
@@ -120,7 +128,7 @@ def resolve_past(root, ref, identity):
         if not speaker or not confirmed(speaker) or speaker['identity_group'] != identity:
             raise ValueError(f'{ref["meeting"]} 第 {ref["segment"]} 段不是同一位已确认的人说的。')
         corrections = w.read(other / 'corrections.json') if (other / 'corrections.json').exists() else []
-        label = meeting_label(other, other_state, ref['source_id'])
+        label = meeting_label(other, other_state, ref['source_id'])  # OSError here is reported by the caller
         return {**ref, 'topic': label['topic'], 'meeting_date': label['meeting_date'],
                 'time': w.timestamp(segments[ref['segment']]['start_ms']),
                 'text': w.corrected_text(segments[ref['segment']]['text'], ref['source_id'], ref['segment'], corrections)}

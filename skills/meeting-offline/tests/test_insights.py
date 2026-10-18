@@ -107,6 +107,28 @@ class InsightTests(unittest.TestCase):
                 insights.save(self.root, document, revision)
         self.assertFalse((self.root / 'insights.json').exists())
 
+    def test_history_skips_a_damaged_workspace_and_a_lost_citation_does_not_break_export(self):
+        broken = self.meetings / 'broken'; broken.mkdir()
+        w.write(broken / 'state.json', {'device_id': device_context.device_id(), 'sources': [{'source_id': 'm', 'path': str(self.base / 'gone.json')}],
+                                        'speakers': [{'key': 'x-A', 'source_id': 'm', 'source_speaker_id': 0, 'role_name': '林悦',
+                                                      'identity_group': 'person-A', 'role_confirmed': True}]})
+        self.assertEqual([m['meeting'] for m in insights.history(self.root)['people'][0]['meetings']], ['earlier'])
+        insights.save(self.root, self.document(), w.read(self.root / 'state.json')['revision'])
+        Path(w.read(self.earlier / 'state.json')['sources'][0]['path']).unlink()  # the cited earlier transcript is gone
+        files = w.export(self.root)['files']['m']
+        self.assertNotIn('insight_md', files); self.assertIn('insight_error', files)
+
+    def test_a_stale_insight_is_withdrawn_from_the_archive_unless_edited(self):
+        insights.save(self.root, self.document(), w.read(self.root / 'state.json')['revision'])
+        w.publish(self.root)
+        archived = archive_meeting.collect_workspace(self.root, 'm', archive_root=self.base / 'archive')
+        revision = w.read(self.root / 'state.json')['revision']
+        w.save_roles(self.root, [{'key': 'now-A', 'name': '王五', 'entity_type': 'person', 'scope': '测试'}], revision)
+        w.publish(self.root)
+        again = archive_meeting.collect_workspace(self.root, 'm', archive_root=self.base / 'archive')
+        self.assertNotIn('insight_md', again)
+        self.assertFalse(Path(archived['insight_md']).exists())
+
     def test_reassigning_a_speaker_makes_the_insight_stale(self):
         insights.save(self.root, self.document(), w.read(self.root / 'state.json')['revision'])
         revision = w.read(self.root / 'state.json')['revision']

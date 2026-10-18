@@ -47,20 +47,23 @@ class ObsidianTests(unittest.TestCase):
     def tearDown(self):
         self.store.stop(); self.png.stop(); self.env.stop(); self.tmp.cleanup()
 
-    def meeting(self):
-        transcript = self.base / 'm.json'
+    def meeting(self, lines=None, name='m'):
+        """The default meeting comes with an analysis; custom lines stop after import."""
+        transcript = self.base / (name + '.json')
+        custom = lines is not None
+        lines = lines or [(0, '这周背联的上线节奏要定下来。'), (0, '我先把方案写完。'), (1, '背联那边还在等打样。'), (0, '好的。')]
         w.write(transcript, {'model': 'synthetic', 'segments': [
-            {'speaker_id': 0, 'start_ms': 0, 'end_ms': 3000, 'text': '这周背联的上线节奏要定下来。'},
-            {'speaker_id': 0, 'start_ms': 3000, 'end_ms': 5000, 'text': '我先把方案写完。'},
-            {'speaker_id': 1, 'start_ms': 5200, 'end_ms': 8000, 'text': '背联那边还在等打样。'},
-            {'speaker_id': 0, 'start_ms': 8200, 'end_ms': 9000, 'text': '好的。'}]})
-        audio = self.base / 'Downloads' / '新录音 3.m4a'; audio.parent.mkdir(); audio.write_bytes(b'audio-bytes')
+            {'speaker_id': who, 'start_ms': i * 3000, 'end_ms': i * 3000 + 2500, 'text': text} for i, (who, text) in enumerate(lines)]})
+        audio = self.base / 'Downloads' / (name + '-新录音 3.m4a' if name != 'm' else '新录音 3.m4a')
+        audio.parent.mkdir(exist_ok=True); audio.write_bytes(name.encode() + b'-audio-bytes')
         speakers = [{'key': 'm-' + k, 'source_id': 'm', 'source_speaker_id': i, 'role_name': name, 'display_name': name,
                      'identity_group': 'person-' + k, 'role_confirmed': True, 'utterances': []}
                     for i, (k, name) in enumerate([('A', '张三'), ('B', '李四')])]
-        state = self.base / 'state.json'
+        state = self.base / (name + '-state.json')
         w.write(state, {'sources': [{'source_id': 'm', 'path': str(transcript)}], 'speakers': speakers})
-        root = w.initialize(state, self.base / 'meetings' / 'm', {'m': audio})
+        root = w.initialize(state, self.base / 'meetings' / name, {'m': audio})
+        if custom:
+            return root
         w.set_analysis(root, {'sources': {'m': {
             'meeting_date': '2026-10-16',
             'actions': [{'task': '写完背联上线方案', 'owner': 'm-A', 'owner_basis': 'self_commitment', 'evidence': [1]}],
@@ -127,7 +130,7 @@ class ObsidianTests(unittest.TestCase):
         self.assertIn('- [ ] 写完背联上线方案（负责人：张三，期限待明确）', minutes)
         self.assertIn('![录音](新录音%203.m4a)', minutes)
         spoken = Path(files['transcript_md']).read_text(encoding='utf-8')
-        self.assertIn('**张三**　`00:00:00`\n这周背联的上线节奏要定下来。我先把方案写完。\n\n**李四**　`00:00:05`', spoken)
+        self.assertIn('**张三**　`00:00:00`\n这周背联的上线节奏要定下来。我先把方案写完。\n\n**李四**　`00:00:06`', spoken)
         w.publish(root)
         result = archive_meeting.collect_workspace(root, 'm', archive_root=device_context.paths()['archive'])
         folder = Path(result['folder'])
@@ -143,6 +146,64 @@ class ObsidianTests(unittest.TestCase):
         again = archive_meeting.collect_workspace(root, 'm', archive_root=device_context.paths()['archive'])
         self.assertEqual(Path(result['md']).read_text(encoding='utf-8'), '我在 Obsidian 里补了一段\n')
         self.assertRegex(Path(again['md']).name, r'^会议纪要-更新版-[0-9a-f]{8}\.md$')
+
+    def test_suggestions_leave_correct_words_alone(self):
+        note(self.vault / '人物' / '李华.md', '# 李华\n')
+        note(self.vault / '项目' / '数据中台.md', '# 数据中台\n')
+        note(self.vault / '客户' / '中泰证券.md', '---\naliases: [中泰]\n---\n')
+        note(self.vault / '项目' / '实施.md', '这次实施要先对齐事实。\n')  # the user writes 事实 themselves
+        obsidian.use(self.vault)
+        root = self.meeting([(0, '他这话里有话。'), (1, '数据中台下周上线。'), (0, '事实是还没排期。')], name='words')
+        self.assertEqual(obsidian.suggest(root), [])
+
+    def test_overlapping_and_ambiguous_matches_make_one_answerable_card_each(self):
+        note(self.vault / '项目' / '贝联科技.md', '---\naliases: [贝联]\n---\n')
+        note(self.vault / '人物' / '张伟.md', '# 张伟\n'); note(self.vault / '人物' / '章伟.md', '# 章伟\n')
+        obsidian.use(self.vault)
+        root = self.meeting([(0, '背联科技下周上线。'), (1, '张炜那边还没回。')], name='overlap')
+        cards = {c['forms'][0]: c for c in obsidian.suggest(root)}
+        self.assertEqual(set(cards), {'背联科技', '张炜'})
+        self.assertEqual([o['text'] for o in cards['张炜']['options']], ['张伟', '章伟'])
+        self.assertIsNone(cards['张炜']['suggested'])
+        term_review.prepare(root, list(cards.values()), 1)
+        revision = w.read(root / 'state.json')['revision']
+        with self.assertRaisesRegex(ValueError, '多个候选'):
+            term_review.confirm_batch(root, [{'candidate_id': c['id']} for c in cards.values()], revision)
+        term_review.confirm_batch(root, [{'candidate_id': cards['背联科技']['id']},
+                                         {'candidate_id': cards['张炜']['id'], 'canonical': '章伟'}], revision)
+        latest = w.read(root / 'exports' / 'latest.json')['files']['m']
+        self.assertIn('贝联科技下周上线', Path(latest['transcript']).read_text(encoding='utf-8'))
+        self.assertIn('章伟那边还没回', Path(latest['transcript']).read_text(encoding='utf-8'))
+
+    def test_suggestions_only_use_words_from_the_original_transcript(self):
+        obsidian.use(self.vault)
+        root = self.meeting([(0, '我们和背联谈过了。')], name='raw')
+        cards = obsidian.suggest(root)
+        term_review.prepare(root, cards, 1)
+        term_review.confirm_batch(root, [{'candidate_id': c['id']} for c in cards], 2)
+        note(self.vault / '地点' / '河北.md', '# 河北\n')  # 和贝 only exists after the correction
+        self.assertEqual(obsidian.suggest(root), [])
+
+    def test_unreadable_or_malformed_vault_settings_fall_back_to_the_default_archive(self):
+        obsidian.use(self.vault)
+        with mock.patch.object(Path, 'is_dir', side_effect=PermissionError('denied')):
+            self.assertIsNone(device_context.obsidian_target(device_context.paths()['preferences'], device_context.device_id()))
+        preferences = device_context.paths()['preferences']
+        value = w.read(preferences); value['meeting_offline']['obsidian'] = True; w.write(preferences, value)
+        self.assertIsNone(device_context.paths()['vault'])
+        value.pop('meeting_offline'); value['meeting_minutes'] = {'theme': 'mono'}; w.write(preferences, value)
+        obsidian.use(self.vault)
+        self.assertEqual(device_context.minutes_preferences()['theme'], 'mono')  # pre-rename settings survive
+
+    def test_shared_html_shows_display_names_only(self):
+        document = {'topic': '周会', 'meeting_time': '', 'participants': '供应商代表', 'summary': '', 'points': [], 'todos': [],
+                    'people': [{'name': '王五', 'shown': '供应商代表'}]}
+        self.assertNotIn('王五', minutes_html.render(document))
+
+    def test_markdown_targets_and_properties_survive_unusual_names(self):
+        self.assertEqual(minutes_md.target('录音 #1 [终版] 50%.m4a'), '录音%20%231%20%5B终版%5D%2050%25.m4a')
+        text = minutes_md.minutes({'topic': '周会\n第二行', 'meeting_time': '', 'participants': '', 'summary': '', 'points': [], 'todos': []})
+        self.assertIn('title: "周会 第二行"', text); self.assertIn('# 周会 第二行\n', text)
 
     def test_markdown_keeps_spoken_text_literal(self):
         document = {'topic': '周会', 'meeting_time': '', 'participants': '我等3人', 'people': [{'name': '张三', 'shown': '我'}],

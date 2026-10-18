@@ -61,7 +61,7 @@ def index_file(root):
 
 
 def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
-            archive_date=None, html=None, png=None, expected_hash=None, extra=None):
+            archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=()):
     audio = Path(audio).expanduser().absolute()
     if audio.is_symlink() or not audio.is_file():
         raise ValueError('录音必须是存在的普通文件：' + str(audio))
@@ -138,6 +138,14 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
                 shutil.copy2(source, temporary)
                 temporary.replace(target)
             manifest['files'][kind] = {'name': target.name, 'generated_sha256': checksum}
+        for kind in withdraw:
+            # A deliverable that no longer holds (a stale 深度洞察) goes, unless the user edited it.
+            last = manifest['files'].get(kind)
+            path = target_folder / last['name'] if last else None
+            if path and path.is_file() and w.file_digest(path) == last['generated_sha256']:
+                path.unlink()
+            if path and not path.exists():
+                del manifest['files'][kind]
         w.write(target_folder / '.archive.json', manifest)
         return {'folder': str(target_folder), 'audio': str(destination),
                 **{kind: str(target_folder / details['name']) for kind, details in manifest['files'].items()}}
@@ -162,7 +170,8 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
                          meeting_date=analysis.get('meeting_date'), archive_date=archive_date,
                          expected_hash=source.get('audio_sha256'),
                          html=documents['html']['path'], png=documents['png']['path'],
-                         extra={k: v['path'] for k, v in documents.items() if k not in ('html', 'png')})
+                         extra={k: v['path'] for k, v in documents.items() if k not in ('html', 'png')},
+                         withdraw=[k for k in ('insight_md',) if k not in documents])
         if source.get('audio_path') != result['audio'] or source.get('archive_dir') != result['folder']:
             source.setdefault('original_audio_path', source['audio_path'])
             source.update(audio_path=result['audio'], archive_dir=result['folder'])

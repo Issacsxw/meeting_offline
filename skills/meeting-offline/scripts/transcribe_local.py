@@ -78,16 +78,19 @@ def load_hotwords(path):
         raise LocalError('读不了热词文件：' + str(path)) from error
     if not isinstance(words, dict) or any(not isinstance(w, str) for w in words):
         raise LocalError('热词文件必须是 {"标准词": 权重} 形式的 JSON 对象。')
-    kept = sorted({w.strip() for w in words if w.strip() and not any(c.isspace() for c in w.strip())})
-    dropped = len([w for w in words if w.strip()]) - len(kept)
+    # Highest weight first, then file order: engines cut long lists, so the most important words must lead.
+    ranked = sorted(words, key=lambda w: -words[w] if isinstance(words[w], (int, float)) else 0)
+    kept = list(dict.fromkeys(w.strip() for w in ranked if w.strip() and not any(c.isspace() for c in w.strip())))
+    dropped = len({w.strip() for w in words if w.strip()}) - len(kept)
     if dropped:
         note(f'有 {dropped} 个热词包含空格，本地引擎无法使用，已跳过。')
     return kept[:1000]
 
 
 def cache_path(audio_sha, engine, model, speakers=None, hotwords=()):
-    tag = hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else 'nohw'
-    name = f'{audio_sha[:24]}-{engine}-{model}-{speakers or "auto"}-{tag}.json'
+    # Without hotwords the name matches 11.8.0, so results cached by that version are reused.
+    tag = '-' + hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else ''
+    name = f'{audio_sha[:24]}-{engine}-{model}-{speakers or "auto"}{tag}.json'
     return device_context.paths()['jobs'] / 'local' / name
 
 
@@ -184,9 +187,10 @@ def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=())
     import sherpa_onnx
     samples = decode_audio(str(audio), sampling_rate=16000)
     whisper = WhisperModel(model, device=device, compute_type='default')
-    parts, _ = whisper.transcribe(samples, language='zh', initial_prompt=WHISPER_PROMPT, vad_filter=True,
-                                  hotwords='、'.join(hotwords) or None,
-                                  word_timestamps=True)
+    options = {'language': 'zh', 'initial_prompt': WHISPER_PROMPT, 'vad_filter': True, 'word_timestamps': True}
+    if hotwords:
+        options['hotwords'] = '、'.join(hotwords)  # faster-whisper 1.0+; only passed when there are any
+    parts, _ = whisper.transcribe(samples, **options)
     pieces = []
     for part in parts:
         words = part.words or []

@@ -115,11 +115,14 @@ def confirm_batch(root, choices, expected):
         w.check_revision(state, expected)
         store_path = w.memory_path(state)
         saved = {path: path.read_bytes() if path.exists() else None for path in (root / 'corrections.json', store_path)}
-        changes = []
+        changes, skipped = [], []
         try:
             for n, choice in enumerate(choices):
                 try:
-                    changes.append(apply_choice(root, state, expand(root, state, choice), via='batch'))
+                    payload = expand(root, state, choice)
+                    if payload is None:  # an earlier choice in this batch already corrected these words
+                        skipped.append(choice['candidate_id']); continue
+                    changes.append(apply_choice(root, state, payload, via='batch'))
                 except ValueError as error:
                     raise ValueError(f'第 {n + 1} 条（{choice.get("candidate_id") if isinstance(choice, dict) else choice}）：{error}') from None
         except BaseException:
@@ -131,11 +134,13 @@ def confirm_batch(root, choices, expected):
                         memory.atomic_write(path, json.loads(content))
             raise
         return w.commit(root, state, {'kind': 'term_batch_reviewed', 'actor': 'user',
-                                     'candidate_ids': [c['candidate_id'] for c in changes]})
+                                     'candidate_ids': [c['candidate_id'] for c in changes], 'skipped': skipped})
 
 
 def expand(root, state, choice):
-    """Turn a short batch choice into the payload save() takes; "all" selects every remaining occurrence."""
+    """Turn a short batch choice into the payload save() takes; "all" selects every remaining occurrence.
+
+    Returns None when nothing is left to correct, e.g. a longer card in the same batch already fixed it."""
     if not isinstance(choice, dict):
         raise ValueError('每条确认结果必须是对象。')
     card = next((c for c in cards(root, state) if c['id'] == choice.get('candidate_id')), None)
@@ -144,8 +149,9 @@ def expand(root, state, choice):
     decision = choice.get('decision', 'confirm')
     if decision != 'confirm':
         return {'candidate_id': card['id'], 'decision': decision}
-    suggested = card['options'][0]['text'] if len(card['options']) == 1 else None
-    canonical = choice.get('canonical') or suggested
+    if not choice.get('canonical') and len(card['options']) != 1:
+        raise ValueError('这张卡片有多个候选写法（' + '、'.join(o['text'] for o in card['options']) + '），请让用户选一个并填 canonical。')
+    canonical = choice.get('canonical') or card['options'][0]['text']
     segments = choice.get('segments', 'all')
     if segments != 'all' and (not isinstance(segments, list) or any(type(i) is not int for i in segments)):
         raise ValueError('segments 只能是 "all" 或段落编号列表。')
@@ -158,7 +164,7 @@ def expand(root, state, choice):
             selections.append({'heard': variant['form'], 'segment_indices': chosen,
                                'learn_alias': choice.get('learn_alias', everything) and everything})
     if not selections:
-        raise ValueError('没有可修正的段落（可能已经改过了）。')
+        return None
     return {'candidate_id': card['id'], 'decision': 'confirm', 'canonical': canonical,
             'scope': choice.get('scope') or card['scope'], 'selections': selections}
 

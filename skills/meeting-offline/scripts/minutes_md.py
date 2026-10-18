@@ -16,7 +16,8 @@ def escape(text):
 
 
 def yaml(value):
-    return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"') + '"'
+    value = str(value).replace('\\', '\\\\').replace('"', '\\"')
+    return '"' + value.replace('\n', '\\n').replace('\r', '').replace('\t', ' ') + '"'
 
 
 def link(person, links):
@@ -28,7 +29,15 @@ def link(person, links):
 
 
 def target(name):
-    return name.replace(' ', '%20').replace('(', '%28').replace(')', '%29')
+    """A link target Obsidian and other editors resolve: encode what Markdown or Obsidian would read as syntax."""
+    name = name.replace('%', '%25')
+    for char in ' ()#^[]|<>':
+        name = name.replace(char, '%{:02X}'.format(ord(char)))
+    return name
+
+
+def one_line(text):
+    return ' '.join(str(text).split())
 
 
 def front(fields):
@@ -47,7 +56,7 @@ def front(fields):
 def minutes(document, *, meeting_date=None, links=None, audio=None):
     links = links or {}
     people = document.get('people') or []
-    topic = document['topic']
+    topic = one_line(document['topic'])
     named = [link(p, links) for p in people]
     lines = front([('title', topic), ('date', meeting_date), ('participants', [link(p, links) if links.get(p['name']) else p['shown'] for p in people]),
                    ('tags', ['会议纪要']), ('aliases', [f'{meeting_date} {topic}' if meeting_date else topic]),
@@ -88,6 +97,7 @@ def minutes(document, *, meeting_date=None, links=None, audio=None):
 def transcript(topic, segments, *, meeting_date=None, people=(), links=None):
     """segments: [{speaker, start_ms, text}] in order; consecutive turns by one speaker become a paragraph."""
     links = links or {}
+    topic = one_line(topic)
     lines = front([('title', f'{topic} 逐字稿'), ('date', meeting_date),
                    ('participants', [link(p, links) if links.get(p['name']) else p['shown'] for p in people]),
                    ('tags', ['逐字稿']), ('created_by', 'meeting-offline')])

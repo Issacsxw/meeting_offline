@@ -551,7 +551,7 @@ def export(root):
                     insights.validate(root, {'sources': {sid: private['sources'][sid]}})
                     text = insights.markdown(root, state, sid, private['sources'][sid], corrections, protected, shown_names,
                                              links, document['topic'], meeting_date)
-                except ValueError as error:
+                except (ValueError, OSError, KeyError) as error:  # e.g. a cited earlier meeting was deleted
                     files['insight_error'] = str(error)
                 else:
                     path = directory / (sid + '-深度洞察.md'); path.write_text(text, encoding='utf-8'); files['insight_md'] = str(path)

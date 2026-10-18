@@ -32,6 +32,8 @@ def render(document):
         for item in document[field]:
             if not isinstance(item, dict) or any(not isinstance(item.get(k), str) for k in required):
                 raise ValueError('Invalid ' + field + ' item.')
+    # people carries confirmed names for the Markdown links; the shared page only shows display names.
+    document = {k: v for k, v in document.items() if k != 'people'}
     payload = json.dumps(document, ensure_ascii=False).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
     source = TEMPLATE.read_text(encoding='utf-8').replace('__MEETING_DATA__', payload)
     return source.replace('<title>会议纪要</title>', '<title>' + html.escape(document['topic']) + '</title>')

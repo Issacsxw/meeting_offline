@@ -104,17 +104,24 @@ def read_preferences(path, identity):
         preferences = json.loads(Path(path).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
-    if preferences.get('device_id') not in (None, identity):
+    if not isinstance(preferences, dict) or preferences.get('device_id') not in (None, identity):
         return {}
     # Preferences written before the rename keep their settings under 'meeting_minutes'.
-    return preferences.get('meeting_offline') or preferences.get('meeting_minutes') or {}
+    section = preferences.get('meeting_offline') or preferences.get('meeting_minutes') or {}
+    return section if isinstance(section, dict) else {}
 
 
 def obsidian_target(preferences_path, identity):
     """(vault, folder) when the user chose an Obsidian vault that still exists; meetings are archived there."""
-    chosen = read_preferences(preferences_path, identity).get('obsidian') or {}
-    vault = Path(chosen.get('vault') or '').expanduser()
-    if not chosen.get('vault') or not (vault / '.obsidian').is_dir():
+    chosen = read_preferences(preferences_path, identity).get('obsidian')
+    if not isinstance(chosen, dict) or not isinstance(chosen.get('vault'), str) or not chosen['vault']:
+        return None
+    vault = Path(chosen['vault']).expanduser()
+    try:
+        present = (vault / '.obsidian').is_dir()
+    except OSError:  # unreadable for this app (permissions, unmounted drive): fall back to the default archive
+        present = False
+    if not present:
         return None
     folder = str(chosen.get('folder') or '会议纪要').strip('/\\') or '会议纪要'
     return vault.resolve(), folder

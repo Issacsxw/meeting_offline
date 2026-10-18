@@ -48,7 +48,7 @@ python3 <skill-dir>/scripts/obsidian.py suggest --workspace /path/to/workspace -
 python3 <skill-dir>/scripts/workspace.py candidates --workspace /path/to/workspace --file /path/to/obsidian-candidates.json --revision N
 ```
 
-`suggest` 找出转写里和库中词语读音相同、写法不同的词（例如“背联”和笔记《贝联》），跳过库里本来就有的词和已确认的术语；本技能自己归档的会议笔记不当作词库，避免把旧错误带回来。候选为空就不提这一步。有候选时在一条消息里列出，默认都按库里的写法改：
+`suggest` 找出转写里和库中词语读音相同、写法不同的词（例如“背联”和笔记《贝联》）。两个字的词还要声调相同，更长的名字只比读音。它会跳过：正确词语内部的片段（“数据中台”里的“中台”）、库里本来就有的词和已确认的术语、你在笔记里自己写过的词（说明是真实用词，不是识别错误），以及只出现在更长匹配里面的短匹配。本技能自己归档的会议笔记不当作词库，避免把旧错误带回来。候选为空就不提这一步。有候选时在一条消息里列出，默认都按库里的写法改：
 
 ```
 在你的 Obsidian 库里找到 2 处可能识别错的词，默认按库里的写法修正：
@@ -57,7 +57,7 @@ python3 <skill-dir>/scripts/workspace.py candidates --workspace /path/to/workspa
 回复“都对”全部修正；也可以说“第 2 个不改”或“第 1 个只改第一处”。
 ```
 
-每条给一句原话，让用户能判断。用户回复后写确认文件并一次应用：
+每条给一句原话，让用户能判断。库里有几种同音写法的一条（卡片 `options` 不止一个、`suggested` 为空，例如“张炜”对应《张伟》《章伟》）不默认勾选，单独问用户是哪一个，确认文件里写上 `canonical`。用户回复后写确认文件并一次应用：
 
 ```json
 [{"candidate_id": "obsidian-…", "decision": "confirm"},
@@ -68,6 +68,6 @@ python3 <skill-dir>/scripts/workspace.py candidates --workspace /path/to/workspa
 python3 <skill-dir>/scripts/workspace.py confirm-terms --workspace /path/to/workspace --file /path/to/choices.json --revision N
 ```
 
-`decision` 是 `confirm`（按库里写法改）、`different`（不是同一个词）或 `defer`（暂不确定）。`segments` 默认 `"all"`，也可以给段落编号只改其中几处；全部修正时会记住对应关系，下次自动给出候选，只改部分时不记。任何一条出错，整批都不生效，报出是第几条。短会议快速通道里，这份清单和认领问题放在同一条消息里。
+`decision` 是 `confirm`（按库里写法改）、`different`（不是同一个词）或 `defer`（暂不确定）。`segments` 默认 `"all"`，也可以给段落编号只改其中几处；全部修正时会记住对应关系，下次自动给出候选，只改部分时不记。前面一条已经把这些词改掉时，后面那条自动跳过（结果里的 `skipped`）。任何一条出错，整批都不生效，报出是第几条。短会议快速通道里，这份清单和认领问题放在同一条消息里。
 
 用户没回应这份清单就继续写纪要时，不应用任何修正；读音相同不等于写错，仍需用户确认。

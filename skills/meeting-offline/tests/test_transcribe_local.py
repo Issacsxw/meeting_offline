@@ -79,17 +79,20 @@ class LocalTests(unittest.TestCase):
 
     def test_hotwords_reach_funasr_and_change_the_cache_key(self):
         words = Path(self.tmp.name) / 'hotwords.json'
-        words.write_text(json.dumps({'贝联': 2, '净草签': 2, 'Model Studio': 1}, ensure_ascii=False), encoding='utf-8')
+        words.write_text(json.dumps({'有效量房': 1, '贝联': 2, '净草签': 2, 'Model Studio': 1}, ensure_ascii=False), encoding='utf-8')
         loaded = local.load_hotwords(words)
-        self.assertEqual(loaded, ['净草签', '贝联'])  # terms with spaces cannot be passed to local engines
+        # Heavier words first, then file order (engines cut long lists); terms with spaces are skipped.
+        self.assertEqual(loaded, ['贝联', '净草签', '有效量房'])
         with self.fake_funasr():
             plain = local.transcribe(self.audio, 'funasr')
             biased = local.transcribe(self.audio, 'funasr', hotwords=loaded)
         self.assertFalse(biased['reused'])
         self.assertNotEqual(plain['result_path'], biased['result_path'])
-        self.assertEqual(biased['hotwords_used'], ['净草签', '贝联'])
-        self.assertEqual(FakeAutoModel.calls[-1][2]['hotword'], '净草签 贝联')
+        self.assertEqual(biased['hotwords_used'], ['贝联', '净草签', '有效量房'])
+        self.assertEqual(FakeAutoModel.calls[-1][2]['hotword'], '贝联 净草签 有效量房')
         self.assertNotIn('hotword', FakeAutoModel.calls[1][2])
+        # Without hotwords the cache name is the one 11.8.0 used, so its results are still found.
+        self.assertEqual(local.cache_path('a' * 64, 'funasr', 'paraformer-zh').name, 'a' * 24 + '-funasr-paraformer-zh-auto.json')
         with self.assertRaisesRegex(local.LocalError, '热词'):
             words.write_text('["贝联"]', encoding='utf-8'); local.load_hotwords(words)
 
@@ -116,7 +119,7 @@ class LocalTests(unittest.TestCase):
             def __init__(self, model, **kwargs): self.model = model
             def transcribe(self, samples, **kwargs):
                 assert kwargs['language'] == 'zh' and kwargs['word_timestamps'] and kwargs['vad_filter']
-                assert kwargs['hotwords'] == '贝联、净草签'
+                assert kwargs.get('hotwords') in ('贝联、净草签', None) and ('hotwords' in kwargs) == Whisper.biased
                 return iter(segments), None
         turn = lambda start, end, speaker: types.SimpleNamespace(start=start, end=end, speaker=speaker)
         class Result:
@@ -131,6 +134,9 @@ class LocalTests(unittest.TestCase):
         fw = module('faster_whisper', WhisperModel=Whisper, decode_audio=lambda path, sampling_rate: [0.0] * 16000)
         with mock.patch.dict(sys.modules, {'faster_whisper': fw, 'sherpa_onnx': sherpa}), \
                 mock.patch.object(local, 'model_file', side_effect=lambda url, folder, member=None: Path(folder) / 'm.onnx'):
+            Whisper.biased = False  # faster-whisper before 1.0 has no hotwords argument at all
+            local.transcribe(self.audio, 'whisper', model='small')
+            Whisper.biased = True
             result = local.transcribe(self.audio, 'whisper', model='small', hotwords=['贝联', '净草签'])
         self.assertEqual([(s['speaker_id'], s['text']) for s in result['segments']], [(0, '先看预算。'), (1, '可以。')])
         self.assertEqual(result['model'], 'whisper:small')

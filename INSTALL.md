@@ -3,7 +3,7 @@
 用户让你安装 meeting_offline 时，按这份说明做。技能名是 `meeting-offline`，技能文件夹在本仓库的 `skills/meeting-offline/`，里面的 `SKILL.md` 是入口。
 
 - 仓库：https://github.com/sunxuwang001-sketch/meeting_offline
-- 用途：把会议录音整理成会议纪要（主题、时间、参会人、核心要点、主要 Todo），交付可编辑 HTML 和 PNG；说话人身份由用户确认，确认过的角色和术语保存在本机。
+- 用途：把会议录音整理成会议纪要（主题、时间、参会人、核心要点、主要 Todo），交付可编辑 HTML、PNG 和 Markdown（含逐字稿），可选 5 种版式和 5 种配色；可以归档进 Obsidian 库，也可以另出一份只给用户看的深度洞察。说话人身份由用户确认，确认过的角色和术语保存在本机。
 - 依赖：Python 3.9+（只用标准库）。生成 PNG 用本机的 Chrome、Edge 或 Chromium，没有也能用。
 - 许可证：MIT。
 

@@ -103,7 +103,7 @@ def main():
     for target, destination in installed:
         print('已安装到 ' + target['name'] + '：' + str(destination))
         print('  ' + target['use'])
-    print('各工具共用本机同一份角色和术语库。Qwen 密钥需在本机单独配置。')
+    print('各工具共用本机同一份角色和术语库。转写可以用阿里云 API Key，也可以不要 Key 在本机识别，第一次用时 AI 会说明差别。')
 
 
 if __name__ == '__main__':

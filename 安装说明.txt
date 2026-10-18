@@ -5,10 +5,13 @@
 2. macOS/Linux：在解压目录执行 python3 install.py
    Windows：在解压目录执行 py -3 install.py
    默认装到本机检测到的全部工具；只装某一个可加 --target codex / claude / workbuddy / codebuddy。
+   WorkBuddy 也可以在应用内“专家 → 技能 → 添加技能 → 导入技能”拖入 upload 压缩包。
 3. 重新打开对应工具：Codex 输入 $meeting-offline，Claude Code 输入 /meeting-offline，
    WorkBuddy 新开会话；也可以直接说“整理这份会议录音”。
-4. 在本机单独配置 Qwen 密钥；macOS 可执行已安装技能里的 scripts/setup_keychain.sh。
-   WorkBuddy 也可以在应用内“专家 → 技能 → 添加技能 → 导入技能”拖入 upload 压缩包。
+4. 转写录音二选一：
+   - 阿里云：申请 API Key 后在本机配置（macOS 可执行已安装技能里的 scripts/setup_keychain.sh）；
+   - 本地识别：不需要 Key，录音不上传。第一次用时 AI 会说明 FunASR 和 Whisper 的差别，你选好后它来安装。
+   不要把 API Key 发到对话里。
 
 【云端：ChatGPT / Claude.ai】
 上传 meeting_offline-<版本>-upload.zip：

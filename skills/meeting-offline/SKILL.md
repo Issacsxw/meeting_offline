@@ -68,7 +68,7 @@ description: "把会议录音整理成简洁的会议纪要（主题、时间、
 | 移动录音、归档交付物 | [archive.md](references/archive.md) |
 | 用户用 Obsidian：归档进库、用库纠正识别错误 | [obsidian.md](references/obsidian.md) |
 | 深度洞察：每个人的诉求、考虑和变化 | [insights.md](references/insights.md) |
-| 找录音、转写 | [transcription.md](references/transcription.md)、[voice-memos-setup.md](references/voice-memos-setup.md) |
+| 找录音、转写、手机录音怎么给电脑 | [transcription.md](references/transcription.md)、[voice-memos-setup.md](references/voice-memos-setup.md)、[iphone-recording.md](references/iphone-recording.md) |
 | 没有 API Key、选本地识别、申请 Key | [transcription-options.md](references/transcription-options.md) |
 | 观点卡片、角色映射、跨轮状态 | [roles.md](references/roles.md) |
 | 本地角色库、术语复核与积累 | [memory.md](references/memory.md) |

@@ -11,7 +11,7 @@ python3 <skill-dir>/scripts/find_recordings.py            # 默认最近 30 天�
 python3 <skill-dir>/scripts/find_recordings.py --days 7 --dir /path/to/其他文件夹
 ```
 
-它只读取文件信息，在 iCloud 云盘、下载、桌面（Windows 包括 OneDrive 桌面）里查找 m4a、wav、mp4，跳过隐藏文件夹和已归档的会议，按修改时间从新到旧列出路径、位置、大小和时长，不移动、不上传任何文件。把结果整理成简短列表让用户选；`downloaded: false` 表示文件还在 iCloud 上没下载到本机，请用户在访达里点开下载后再处理。macOS 第一次访问这些文件夹时可能弹出权限提示，由用户决定是否允许。
+它只读取文件信息，在 iCloud 云盘、下载、桌面（Windows 包括 OneDrive 桌面）里查找 m4a、wav、mp4，跳过隐藏文件夹和已归档的会议，按修改时间从新到旧列出路径、位置、大小和时长，不移动、不上传任何文件。用户用手机录会时，按 [用手机录会议](iphone-recording.md) 让录音落进 iCloud 云盘的“会议录音”文件夹，这里就能找到。把结果整理成简短列表让用户选；`downloaded: false` 表示文件还在 iCloud 上没下载到本机，请用户在访达里点开下载后再处理。macOS 第一次访问这些文件夹时可能弹出权限提示，由用户决定是否允许。
 
 ## 来源说明
 

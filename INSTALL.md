@@ -20,7 +20,7 @@ claude plugin marketplace add sunxuwang001-sketch/meeting_offline
 claude plugin install meeting-offline@meeting-offline
 ```
 
-用户也可以在 Claude Code 里自己输入：`/plugin install meeting-offline --marketplace sunxuwang001-sketch/meeting_offline`。
+用户也可以在 Claude Code 里自己输入：`/plugin install meeting-offline --marketplace sunxuwang001-sketch/meeting_offline`（需要 Claude Code v2.1.275 或更新版本；旧版本用 `/plugin marketplace add sunxuwang001-sketch/meeting_offline` 后再 `/plugin install meeting-offline@meeting-offline`）。
 
 ### Codex、Cursor 等支持 `npx skills` 的工具
 

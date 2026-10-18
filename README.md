@@ -19,6 +19,8 @@
 
 把会议录音交给它，告诉它谁是谁，就能得到一份简洁的纪要：主题、时间、参会人、核心要点和主要 Todo。纪要同时交付可直接修改的网页（HTML）、一张可以发到群里的图片（PNG），以及 Markdown 版的纪要和逐字稿。
 
+> 现在是 **1.0 测试版**：功能还在快速迭代，遇到问题或有想法，欢迎在 [Issues](https://github.com/sunxuwang001-sketch/meeting_offline/issues) 里告诉我。
+
 <p align="center"><img src="docs/promo.webp" alt="36 秒看懂 meeting_offline：越用越懂你的角色库和术语库、和 Obsidian 一起用、深度洞察、五种版式" width="100%"></p>
 
 <br>
@@ -129,6 +131,13 @@ AI 会按 [INSTALL.md](INSTALL.md) 选择合适的方式装好，重新打开工
 /plugin install meeting-offline --marketplace sunxuwang001-sketch/meeting_offline
 ```
 
+这条命令需要 Claude Code v2.1.275 或更新版本。版本较旧时分两步：
+
+```
+/plugin marketplace add sunxuwang001-sketch/meeting_offline
+/plugin install meeting-offline@meeting-offline
+```
+
 **Codex、Cursor 等支持 `npx skills` 的工具**
 
 ```bash
@@ -194,8 +203,9 @@ python3 install.py        # Windows：py -3 install.py
 | 纪要文件 | 在本机生成，不依赖在线服务 |
 | Obsidian 库 | 只在本机读取笔记标题、别名和标签，不上传、不改动已有笔记；用阿里云转写时要把库里的词当热词，会先问你 |
 | 深度洞察 | 单独的文件，不进纪要和图片，也不进人名术语库 |
+| 录音收件箱 | 只用本地识别，不上传；通知里只有文件名，没有会议内容 |
 
-想清空积累的数据，删除 `~/.meeting-offline/` 文件夹即可。
+想清空积累的数据，删除 `~/.meeting-offline/` 文件夹即可；开过录音收件箱的，先对 AI 说“关掉录音收件箱”。
 
 <br>
 
@@ -279,7 +289,7 @@ m4a、wav、mp4，手机和电脑自带的录音机、语音备忘录、会议�
 skills/meeting-offline/   技能本体（各工具安装的就是这个文件夹）
   SKILL.md                主流程、纪要要求和硬性规则
   references/             各环节详细说明
-  scripts/                找录音、转写（云端/本地）、工作区、HTML/PNG/Markdown、归档、Obsidian、深度洞察、本地库
+  scripts/                找录音、转写（云端/本地）、录音收件箱、工作区、内容核对、HTML/PNG/Markdown、归档、Obsidian、深度洞察、本地库
   assets/                 纪要模板（5 种版式 × 5 种配色）、复核页面、拼音表
   tests/                  单元测试
 INSTALL.md                写给 AI 助手的安装说明

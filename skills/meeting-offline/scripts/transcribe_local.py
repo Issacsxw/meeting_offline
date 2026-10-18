@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -35,6 +36,8 @@ ENGINES = {
 WHISPER_MODELS = ('small', 'medium', 'large-v3', 'turbo')
 WHISPER_PROMPT = '以下是普通话会议录音，请使用简体中文和标点。'
 MAX_SEGMENT_MS = 30000  # keep merged segments short enough to quote and replay
+# Invalidate final Whisper assignments made before bounded-pause matching. Raw text/turns remain reusable.
+SPEAKER_ASSIGNMENT_VERSION = 2
 # sherpa-onnx speaker diarization models (pyannote segmentation + 3D-Speaker embedding for Chinese).
 SEGMENTATION_URL = ('https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/'
                     'sherpa-onnx-pyannote-segmentation-3-0.tar.bz2')
@@ -194,28 +197,63 @@ def stage_path(sha, name):
     return device_context.paths()['jobs'] / 'local' / f'{sha[:24]}-{name}.json'
 
 
+def valid_cache_rows(rows, needs):
+    """A parseable JSON list can still be an unusable transcription/checkpoint."""
+    if not isinstance(rows, list) or (needs == 'segments' and not rows):
+        return False
+    for row in rows:
+        if needs == 'segments':
+            if not isinstance(row, dict) or not isinstance(row.get('text'), str):
+                return False
+            start, end, speaker = row.get('start_ms'), row.get('end_ms'), row.get('speaker_id')
+        else:
+            if not isinstance(row, (list, tuple)) or len(row) != 3:
+                return False
+            start, end, value = row
+            if needs == 'pieces' and not isinstance(value, str):
+                return False
+            if needs == 'turns' and type(value) is not int:
+                return False
+            speaker = value if needs == 'turns' else None
+        if speaker is not None and (type(speaker) is not int or speaker < 0):
+            return False
+        try:
+            if (type(start) not in (int, float) or type(end) not in (int, float)
+                    or not math.isfinite(start) or not math.isfinite(end) or not 0 <= start <= end
+                    or (needs != 'segments' and not math.isfinite(end * 1000))):
+                return False
+        except OverflowError:
+            return False
+    return True
+
+
 def load_json(path, needs):
     """A cached file, or None when missing or damaged (an interrupted write); damaged files are set aside."""
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
-        if not isinstance(data, dict) or not isinstance(data.get(needs), list):
-            raise ValueError('not a saved result')
     except (ValueError, OSError):
-        broken = path.with_name(path.name + '.damaged')
-        path.replace(broken)
-        note(f'缓存文件损坏（可能上次处理被中断），已移到 {broken.name}，这一步会重新计算。')
-        return None
-    device_context.require_device(data.get('device_id'), path)  # another device's file is refused, not discarded
-    return data
+        data = None
+    if isinstance(data, dict):
+        # Another device's file is refused, not discarded, even when its rows are unusable.
+        if data.get('device_id') is not None:
+            device_context.require_device(data['device_id'], path)
+        if valid_cache_rows(data.get(needs), needs):
+            device_context.require_device(data.get('device_id'), path)
+            return data
+    broken = path.with_name(path.name + '.damaged')
+    path.replace(broken)
+    note(f'缓存文件损坏（可能上次处理被中断），已移到 {broken.name}，这一步会重新计算。')
+    return None
 
 
 def save_json(path, value):
     device_context.atomic_json(path, {**value, 'device_id': device_context.device_id()})
 
 
-def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(), sha=None, allow_unseparated=False):
+def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(), sha=None, allow_unseparated=False,
+                force=False):
     """Whisper text plus sherpa-onnx speakers, each step saved so a failure later never repeats an earlier one."""
     from faster_whisper import WhisperModel, decode_audio
     import sherpa_onnx
@@ -229,7 +267,7 @@ def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(),
         segmentation = embedding = None
     tag = hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else 'nohw'
     asr_path, samples = stage_path(sha, f'whisper-{model}-{tag}-text'), None
-    saved = load_json(asr_path, 'pieces')
+    saved = None if force else load_json(asr_path, 'pieces')
     if saved:
         pieces = [tuple(p) for p in saved['pieces']]
         note('复用已保存的转写文字，直接进行说话人分离。')
@@ -246,7 +284,7 @@ def run_whisper(audio, model='small', speakers=None, device='auto', hotwords=(),
             pieces += [(w.start, w.end, w.word) for w in words] if words else [(part.start, part.end, part.text)]
         save_json(asr_path, {'pieces': pieces})
     turns_path = stage_path(sha, f'sherpa-{speakers or "auto"}-speakers')
-    saved = load_json(turns_path, 'turns')
+    saved = None if force else load_json(turns_path, 'turns')
     if saved:
         turns = [tuple(t) for t in saved['turns']]
     elif segmentation is None:
@@ -293,6 +331,8 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
     hotwords = list(hotwords)
     cached = cache_path(sha, engine, model, speakers, hotwords)
     result = None if force else load_json(cached, 'segments')
+    if result and engine == 'whisper' and result.get('speaker_assignment_version') != SPEAKER_ASSIGNMENT_VERSION:
+        result = None  # reassign from raw checkpoints instead of retaining obsolete speaker guesses
     if result:
         result = with_separation(result)
         # a result made with --allow-unseparated is not the answer to a normal run: try the separation again
@@ -302,7 +342,7 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
     started = datetime.now(timezone.utc)
     note(f'开始本地识别（{ENGINES[engine]["name"]}）。首次运行会先下载模型；录音不会离开这台电脑。')
     used, segments = (run_funasr(audio, speakers, device, hotwords) if engine == 'funasr'
-                      else run_whisper(audio, model, speakers, device, hotwords, sha, allow_unseparated))
+                      else run_whisper(audio, model, speakers, device, hotwords, sha, allow_unseparated, force))
     if not segments:
         raise LocalError('没有识别出任何语音；请确认录音里有人说话。')
     try:
@@ -313,6 +353,8 @@ def transcribe(audio, engine, model=None, speakers=None, device='auto', force=Fa
               'audio_sha256': sha, 'duration_seconds': round(length, 3), 'hotwords_used': hotwords,
               'started_at': started.isoformat(), 'finished_at': datetime.now(timezone.utc).isoformat(),
               'text': ''.join(s['text'] for s in segments), 'segments': segments}
+    if engine == 'whisper':
+        result['speaker_assignment_version'] = SPEAKER_ASSIGNMENT_VERSION
     result = with_separation(result)
     device_context.atomic_json(cached, result)  # an interrupted run never leaves half a file behind
     return {**result, 'result_path': str(cached), 'reused': False}

@@ -205,6 +205,69 @@ class LocalTests(unittest.TestCase):
         with self.fake_funasr():
             self.assertEqual(local.transcribe(self.audio, 'funasr')['speaker_separation'], 'none')
 
+    def test_legacy_whisper_assignments_are_rebuilt_from_checkpoints(self):
+        modules, models = self.whisper(turns=((0, 1.0, 0),))
+        with modules, models:
+            first = local.transcribe(self.audio, 'whisper')
+        cached = Path(first['result_path'])
+        old = json.loads(cached.read_text(encoding='utf-8'))
+        old.pop('speaker_assignment_version', None)
+        # Before the bounded-pause fix, even distant words were assigned to the nearest turn.
+        old['segments'] = [{**s, 'speaker_id': 0} for s in old['segments']]
+        old['speaker_separation'] = 'voice'
+        cached.write_text(json.dumps(old), encoding='utf-8')
+        modules, models = self.whisper()
+        with modules, models:
+            repaired = local.transcribe(self.audio, 'whisper')
+        self.assertFalse(repaired['reused'])
+        self.assertEqual(repaired['speaker_separation'], 'partial')
+        self.assertIsNone(repaired['segments'][-1]['speaker_id'])
+        self.assertEqual(self.runs, [])  # saved text and raw turns are still useful
+        modules, models = self.whisper()
+        with modules, models:
+            self.assertTrue(local.transcribe(self.audio, 'whisper')['reused'])
+
+    def test_force_also_ignores_whisper_stage_checkpoints(self):
+        modules, models = self.whisper()
+        with modules, models:
+            local.transcribe(self.audio, 'whisper')
+        modules, models = self.whisper(turns=((0, 4, 3),))
+        with modules, models:
+            result = local.transcribe(self.audio, 'whisper', force=True)
+        self.assertEqual(len(self.runs), 1)
+        self.assertEqual({s['speaker_id'] for s in result['segments']}, {3})
+
+    def test_structurally_damaged_cache_rows_are_set_aside(self):
+        cases = [('pieces', [[0, 1]]), ('pieces', [[0, float('nan'), '字']]),
+                 ('pieces', [[0, 1e308, '字']]), ('turns', [[0, 1, None]]), ('segments', []),
+                 ('turns', [[0, 1, []]]), ('segments', [None]),
+                 ('segments', [{'start_ms': 0, 'end_ms': 1, 'text': []}])]
+        for index, (needs, rows) in enumerate(cases):
+            with self.subTest(needs=needs, rows=rows):
+                path = Path(self.tmp.name) / f'bad-{index}.json'
+                local.save_json(path, {needs: rows})
+                self.assertIsNone(local.load_json(path, needs))
+                self.assertTrue(path.with_name(path.name + '.damaged').exists())
+
+    def test_damaged_foreign_cache_is_refused_without_moving_it(self):
+        path = Path(self.tmp.name) / 'foreign.json'
+        path.write_text(json.dumps({'device_id': 'another-device', 'segments': [None]}))
+        original = path.read_bytes()
+        with self.assertRaisesRegex(ValueError, '其他设备'):
+            local.load_json(path, 'segments')
+        self.assertEqual(path.read_bytes(), original)
+        self.assertFalse(path.with_name(path.name + '.damaged').exists())
+
+    def test_atomic_checkpoint_failure_preserves_previous_data(self):
+        path = Path(self.tmp.name) / 'checkpoint.json'
+        local.save_json(path, {'pieces': [[0, 1, '原文']]})
+        original = path.read_bytes()
+        with mock.patch.object(local.device_context.os, 'replace', side_effect=OSError('interrupted')), \
+                self.assertRaises(OSError):
+            local.save_json(path, {'pieces': [[0, 1, '新文']]})
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(list(path.parent.glob('.device-*')), [])
+
     def test_whisper_words_get_speakers_from_diarization(self):
         word = lambda start, end, text: types.SimpleNamespace(start=start, end=end, word=text)
         segments = [types.SimpleNamespace(start=0, end=2, text='x', words=[word(0, 1, '先看'), word(1, 2, '预算。')]),

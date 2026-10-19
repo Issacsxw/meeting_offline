@@ -21,7 +21,7 @@ def audio_channels(path):
             pass
     binary = shutil.which('ffprobe')
     if not binary:
-        raise ValueError('无法本地确认录音声道；请安装含 ffprobe 的 FFmpeg 后重试，或提供已确认的单声道 WAV。本次未发起上传或转写请求。')
+        raise ValueError('无法本地确认录音声道；ffprobe 是可选工具，可安装后检查，或自行核对音轨。本次探测未发起上传或转写请求。')
     try:
         result = subprocess.run([binary, '-v', 'error', '-select_streams', 'a', '-show_entries',
                                  'stream=index,channels', '-of', 'json', str(path)],
@@ -33,7 +33,7 @@ def audio_channels(path):
                        or stream['channels'] <= 0 for stream in streams)):
             raise ValueError('Missing audio channel layout.')
     except (OSError, ValueError, subprocess.SubprocessError) as error:
-        raise ValueError('无法本地确认录音声道；请检查文件或用 FFmpeg 准备已确认的单声道 WAV。本次未发起上传或转写请求。') from error
+        raise ValueError('无法本地确认录音声道；可检查文件或准备经核对的单声道副本。本次探测未发起上传或转写请求。') from error
     return [stream['channels'] for stream in streams]
 
 

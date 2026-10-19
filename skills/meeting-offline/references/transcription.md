@@ -33,7 +33,14 @@ dry-run 不读密钥、不发网络请求、不创建任务。实际上传前，
 
 默认 `--network-route direct` 只对阿里云域名绕过代理，不改系统代理。环境变量 `DASHSCOPE_API_KEY` 优先，其次在 macOS 读取本机设备对应的钥匙串服务；不打印密钥，也不放入任务 JSON。macOS 使用 afinfo；本地 M4A/WAV 时长读取有标准库回退，其他格式可用 ffprobe，或提供可信 `--duration-seconds`。无法确认时长时不上传。
 
-文件转写（超过 5 分钟，或显式加 `--filetrans`）在上传前和 dry-run 中检查所有音轨，只接受单音轨、单声道录音。WAV 使用标准库读取，M4A/MP4 等格式需安装含 ffprobe 的 FFmpeg（macOS：`brew install ffmpeg`；Windows：`winget install ffmpeg`；Linux 使用发行版软件仓库）。文件转写路线中，`--duration-seconds` 只提供时长，不能代替声道检查。[阿里云文件转写接口](https://www.alibabacloud.com/help/en/model-studio/fun-asr-recorded-speech-recognition-http-api) 默认仅处理声道 0，按声道分别计费，且说话人分离只支持单声道。多声道或无法确认声道时停止，先让用户确认并准备单声道副本；不自动选轨、混音或额外请求其他声道。旧任务已有 task ID 或完成结果时仍允许续查、离线复用，未做过声道预检的历史任务会提示可能遗漏其他声道，不重新上传。
+文件转写（超过 5 分钟，或显式加 `--filetrans`）默认仍只选择声道 0。上传前和 dry-run 尽量检查全部音轨：WAV 用标准库，有 ffprobe（FFmpeg）时其他格式也能检查；**FFmpeg 不是云转写的必装依赖**。不能读取时长时仍需提供可信的 `--duration-seconds`；它不代表已确认声道。dry-run 会返回 `audio_channels`（无法检测为 `null`）、`channel_warning` 和确认状态，不会因立体声或缺少 ffprobe 而拒绝列出计划。
+
+[阿里云文件转写接口](https://www.alibabacloud.com/help/en/model-studio/fun-asr-recorded-speech-recognition-http-api) 默认仅处理声道 0，按声道分别计费，说话人分离只支持单声道。检测为多声道/多音轨，或无法确认声道时，先明确告诉用户：**其他声道或音轨可能有不同内容，继续可能遗漏；不能假定立体声两边相同**。用户可先核对或提供单声道副本，也可明确接受仅声道 0 的风险后加 `--confirm-channel-0` 继续，并照常使用已获授权的 `--confirm-upload`。仅确认上传不等于确认遗漏风险。脚本不自动混音、选其他轨或请求额外计费声道；确认记录仅属于同一文件哈希和设置的任务。已有 task ID 或完成结果仍可续查/离线复用，不因声道重新上传；未做过确认的历史任务会提示可能遗漏。此检查限文件转写路线，不宣称覆盖短录音的直接转写。
+
+```bash
+# 仅在用户已明确接受上述声道风险后使用（不自动添加）
+python3 <skill-dir>/scripts/transcribe_qwen.py --audio /path/to/录音.m4a --confirm-upload --confirm-channel-0
+```
 
 ## 续做、热词和校对
 

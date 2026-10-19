@@ -70,6 +70,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Required for diarization above Alibaba's recommended 2-hour limit",
     )
+    parser.add_argument(
+        "--confirm-channel-0", action="store_true",
+        help="Accept possible loss of other channels/tracks when filetrans selects only channel 0",
+    )
     parser.add_argument("--no-diarization", action="store_true")
     parser.add_argument("--keep-dialect", action="store_true")
     parser.add_argument(

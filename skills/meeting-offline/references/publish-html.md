@@ -121,7 +121,7 @@ python3 <skill-dir>/scripts/workspace.py audit --workspace <ws>
 逐条处理，每条都要有结果：
 
 1. 写错了就改 analysis，重新 `workspace.py analysis` 保存；改对的问题会自动消失。
-2. 原话确实支持、只是说法不同（例如原话“二百二十九”，纪要“229 元”），登记 `supported`，`note` 写明依据。
+2. 原话确实支持但表达不同，先调整正文使核对通过；不能由 AI 登记 `supported` 自行批准。仍有不一致时须用户明确确认。
 3. 拿不准的问用户，用户确认后登记 `user_confirmed`，`note` 写用户怎么说的。不能替用户登记。
 
 ```json

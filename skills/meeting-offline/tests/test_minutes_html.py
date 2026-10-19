@@ -124,12 +124,12 @@ class MinutesHtmlTests(unittest.TestCase):
         seed = self.seed()
         self.assertEqual((seed['participants'], seed['todos'][0]['owner']), ('甲等2人', '甲'))
 
-    def test_unconfirmed_roles_cannot_publish_final_html(self):
+    def test_unconfirmed_roles_can_export_draft_html(self):
         state = w.read(self.root / 'state.json')
         state['speakers'][0]['role_confirmed'] = False
         w.write(self.root / 'state.json', state)
         w.set_analysis(self.root, self.analysis(), 1)
-        self.assertNotIn('html', w.read(self.root / 'exports/latest.json')['files']['4'])
+        self.assertIn('html', w.read(self.root / 'exports/latest.json')['files']['4'])
 
     def test_reader_references_and_owner_override_rejected_before_persist(self):
         for invalid in ['reference', 'owner', 'summary_reference', 'summary_type']:
@@ -147,7 +147,7 @@ class MinutesHtmlTests(unittest.TestCase):
                 'points': [{'title': '原话', 'text': malicious}], 'todos': []}
         parser = SeedParser(); parser.feed(minutes_html.render(data))
         self.assertEqual(json.loads(parser.seed), data)
-        self.assertEqual(len([tag for tag, attrs in parser.tags if tag == 'script']), 2)
+        self.assertEqual(len([tag for tag, attrs in parser.tags if tag == 'script']), 3)
         self.assertEqual([attrs.get('src') for tag, attrs in parser.tags if tag == 'img'], [None])
 
 

@@ -363,7 +363,7 @@ def audit(root):
     return problems
 
 
-RESOLUTIONS = {'fixed': '已改正文', 'supported': '原话确实支持（附说明）', 'user_confirmed': '用户确认无误'}
+RESOLUTIONS = {'fixed': '已改正文', 'user_confirmed': '用户确认无误'}
 
 
 def report(root):
@@ -372,7 +372,7 @@ def report(root):
     root = Path(root)
     latest = w.read(root / 'exports/latest.json')
     saved = w.read(root / 'semantic_review.json') if (root / 'semantic_review.json').exists() else {}
-    settled = saved.get('resolutions', {})
+    settled = {k: v for k, v in saved.get('resolutions', {}).items() if v.get('resolution') == 'user_confirmed'}
     problems = audit(root)
     open_ = [p for p in problems if p['id'] not in settled]
     return {'version': latest['version'], 'checked': not problems or (not open_ and saved.get('version') == latest['version']),
@@ -390,14 +390,14 @@ def resolve(root, resolutions, expected):
             raise ValueError('导出不是最新版本；请先运行 export。')
         problems = {p['id']: p for p in audit(root)}
         saved = w.read(root / 'semantic_review.json') if (root / 'semantic_review.json').exists() else {}
-        settled = {k: v for k, v in saved.get('resolutions', {}).items() if k in problems}  # carry over what still applies
+        settled = {k: v for k, v in saved.get('resolutions', {}).items() if k in problems and v.get('resolution') == 'user_confirmed'}  # carry over what still applies
         if not isinstance(resolutions, dict):
             raise ValueError('确认结果应是 {问题 id: {resolution, note}}。')
         for key, value in resolutions.items():
             if key not in problems:
                 raise ValueError(f'问题 {key} 已不存在（可能正文已改）；请重新运行 audit。')
-            if not isinstance(value, dict) or value.get('resolution') not in ('supported', 'user_confirmed'):
-                raise ValueError(f'{key}: resolution 只能是 supported（原话确实支持）或 user_confirmed（用户确认）；'
+            if not isinstance(value, dict) or value.get('resolution') != 'user_confirmed':
+                raise ValueError(f'{key}: resolution 只能是 user_confirmed（用户明确确认）；AI 不能批准不一致；'
                                  '改了正文的问题会自动消失，不需要登记。')
             note = str(value.get('note', '')).strip()
             if not note:
@@ -406,6 +406,11 @@ def resolve(root, resolutions, expected):
         open_ = [k for k in problems if k not in settled]
         record = {'version': latest['version'], 'revision': state['revision'], 'resolutions': settled,
                   'status': 'checked' if not open_ else 'pending', 'unresolved': open_, 'updated_at': w.now()}
+        w.write(root / 'semantic_review.json', record)
+        # Refresh the draft warning after an explicit user resolution and bind it
+        # to the regenerated export, without approving anything automatically.
+        refreshed = w.export(root)
+        record['version'] = refreshed['version']
         w.write(root / 'semantic_review.json', record)
         return {**record, 'issues': len(problems)}
 
@@ -420,4 +425,4 @@ def is_checked(root):
     if not (root / 'semantic_review.json').exists():
         return False
     saved, latest = w.read(root / 'semantic_review.json'), w.read(root / 'exports/latest.json')
-    return saved.get('version') == latest['version'] and all(p['id'] in saved.get('resolutions', {}) for p in problems)
+    return saved.get('version') == latest['version'] and all(saved.get('resolutions', {}).get(p['id'], {}).get('resolution') == 'user_confirmed' for p in problems)

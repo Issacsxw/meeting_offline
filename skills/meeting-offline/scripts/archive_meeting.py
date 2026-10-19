@@ -61,7 +61,7 @@ def index_file(root):
 
 
 def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
-            archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=()):
+            archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=(), _checked_workspace=False):
     audio = Path(audio).expanduser().absolute()
     if audio.is_symlink() or not audio.is_file():
         raise ValueError('录音必须是存在的普通文件：' + str(audio))
@@ -78,6 +78,8 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         if value:
             path = Path(value).expanduser().resolve(strict=True)
             documents[kind] = (path, w.file_digest(path))
+    if html and not _checked_workspace and 'meeting-speaker-edits' in Path(html).read_text(encoding='utf-8'):
+        raise ValueError('工作区纪要必须使用 --workspace --source 归档，以核验内容和发布状态。')
     audio_hash = w.file_digest(audio)
     if expected_hash and audio_hash != expected_hash:
         raise ValueError('录音校验值与工作区记录不一致；未移动文件。')
@@ -161,6 +163,9 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
         publication = w.read(root / 'publication.json')
         if publication['export_version'] != latest['version'] or latest['revision'] != state['revision']:
             raise ValueError('纪要发布版本已过期；先生成并核对当前 HTML 和 PNG。')
+        import audit
+        if not audit.is_checked(root):
+            raise ValueError('内容核对仍有未处理的不一致；修正文稿或由用户确认后才能归档。')
         documents = publication['files'][source_id]
         for kind in documents:
             if w.file_digest(documents[kind]['path']) != documents[kind]['sha256']:
@@ -168,7 +173,7 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
         result = collect(source['audio_path'], root=archive_root,
                          topic=analysis.get('reader', {}).get('topic') or analysis.get('title') or source.get('title'),
                          meeting_date=analysis.get('meeting_date'), archive_date=archive_date,
-                         expected_hash=source.get('audio_sha256'),
+                         expected_hash=source.get('audio_sha256'), _checked_workspace=True,
                          html=documents['html']['path'], png=documents['png']['path'],
                          extra={k: v['path'] for k, v in documents.items() if k not in ('html', 'png')},
                          withdraw=[k for k in ('insight_md',) if k not in documents])

@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import transcribe_qwen as api
 import qwen_job
+from audio_fixtures import aac_config, audio_entry, m4a, track
 
 
 class JobTests(unittest.TestCase):
@@ -131,6 +132,42 @@ class JobTests(unittest.TestCase):
         self.assertTrue(manifest['channel_0_confirmed'])
         self.assertIn('其他声道', warning.getvalue())
         self.assertIn('可能遗漏', warning.getvalue())
+
+    def write_m4a(self, data):
+        self.audio = self.root / 'recording.m4a'
+        self.audio.write_bytes(data)
+        self.args.audio = str(self.audio)
+
+    def test_mono_m4a_passes_without_ffprobe_or_channel_confirmation(self):
+        self.write_m4a(m4a(track([audio_entry(2, aac_config(1))])))
+        with patch.object(qwen_job.audio_duration.shutil, 'which', return_value=None):
+            self.assertEqual(self.complete_filetrans()['text'], '测试产品')
+        manifest = json.loads((self.root / 'job/job.json').read_text())
+        self.assertEqual(manifest['audio_channels'], [1])
+        self.assertFalse(manifest['channel_0_confirmed'])
+
+    def test_stereo_multitrack_and_unknown_m4a_still_require_confirmation_without_ffprobe(self):
+        for data in (m4a(track([audio_entry(2, aac_config(2))])),
+                     m4a(track([audio_entry(1)]), track([audio_entry(1)])),
+                     m4a(track([audio_entry(1, aac_config(0))])), b'unknown'):
+            with self.subTest(data=data):
+                self.write_m4a(data)
+                with patch.object(qwen_job.audio_duration.shutil, 'which', return_value=None), \
+                     patch.object(api, 'get_api_key', side_effect=AssertionError('no key')), \
+                     patch.object(api, 'request_json', side_effect=AssertionError('no network')), \
+                     patch.object(api, 'upload_temporary', side_effect=AssertionError('no upload')):
+                    with self.assertRaisesRegex(api.TranscriptionError, 'confirm-channel-0'):
+                        qwen_job.execute(self.args, api)
+                self.assertFalse((self.root / 'job/job.json').exists())
+
+    def test_confirmed_stereo_m4a_can_continue_without_ffprobe(self):
+        self.write_m4a(m4a(track([audio_entry(2, aac_config(2))])))
+        self.args.confirm_channel_0 = True
+        with patch.object(qwen_job.audio_duration.shutil, 'which', return_value=None):
+            self.assertEqual(self.complete_filetrans()['text'], '测试产品')
+        manifest = json.loads((self.root / 'job/job.json').read_text())
+        self.assertEqual(manifest['audio_channels'], [2])
+        self.assertTrue(manifest['channel_0_confirmed'])
 
     def test_missing_optional_ffprobe_can_continue_after_confirmation(self):
         self.audio = self.root / 'recording.m4a'

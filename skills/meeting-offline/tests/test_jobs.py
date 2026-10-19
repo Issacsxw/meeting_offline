@@ -1,4 +1,6 @@
 import argparse
+import io
+import urllib.error
 import json
 from pathlib import Path
 import sys
@@ -86,6 +88,101 @@ class JobTests(unittest.TestCase):
     def test_import_does_not_claim_hotword_effect(self):
         self.args.import_result=str(self.root/'result.json')
         with self.assertRaisesRegex(api.TranscriptionError,'热词'):qwen_job.execute(self.args,api)
+
+
+    def save_manifest(self, **extra):
+        _, config, sha, job_id, directory = qwen_job.describe(self.args, api)
+        directory.mkdir(exist_ok=True)
+        manifest = {'device_id': qwen_job.device_context.device_id(), 'status': 'planned',
+                    'audio_sha256': sha, 'config': config, 'job_id': job_id, **extra}
+        qwen_job.save_json(directory / 'job.json', manifest)
+        return directory
+
+
+    def test_real_transport_errors_after_send_never_resubmit(self):
+        # urllib also wraps errors raised during HTTPConnection.request, after bytes may have been sent.
+        class SentThenFailed:
+            def __init__(self, *args, **kwargs): pass
+            def set_debuglevel(self, *args): pass
+            def request(self, *args, **kwargs):
+                raise ConnectionResetError('connection reset after request bytes were sent')
+            def close(self): pass
+        request = api.urllib.request.Request('http://synthetic.invalid/', data=b'{}', method='POST')
+        request.timeout = 1
+        with self.assertRaises(urllib.error.URLError) as wrapped:
+            api.urllib.request.HTTPHandler().do_open(SentThenFailed, request)
+        for duration in (60, 400):
+            with self.subTest(duration=duration):
+                self.args.duration_seconds = duration
+                self.args.hotwords = None
+                self.args.job_dir = str(self.root / f'transport-{duration}')
+                with patch.object(api, 'get_api_key', return_value='synthetic'), \
+                     patch.object(api, 'get_upload_policy', return_value={}), \
+                     patch.object(api, 'upload_temporary', return_value='oss://synthetic'), \
+                     patch.object(api.urllib.request, 'build_opener') as opener:
+                    opener.return_value.open.side_effect = wrapped.exception
+                    with self.assertRaises(api.TranscriptionError) as caught:
+                        qwen_job.execute(self.args, api)
+                    self.assertFalse(caught.exception.not_processed)
+                    manifest = json.loads((Path(self.args.job_dir) / 'job.json').read_text())
+                    self.assertEqual(manifest['status'], 'uncertain_submission')
+                    with self.assertRaisesRegex(api.TranscriptionError, '结果不确定'):
+                        qwen_job.execute(self.args, api)
+                    self.assertEqual(opener.return_value.open.call_count, 1)
+
+
+    def test_real_http_rejection_still_marks_request_retryable(self):
+        rejection = urllib.error.HTTPError('https://dashscope.aliyuncs.com/test', 401, 'rejected', {}, io.BytesIO(b'bad key'))
+        with patch.object(api.urllib.request, 'build_opener') as opener:
+            opener.return_value.open.side_effect = rejection
+            with self.assertRaises(api.TranscriptionError) as caught:
+                api.request_json('https://dashscope.aliyuncs.com/test', method='POST', payload={})
+        self.assertTrue(caught.exception.not_processed)
+
+
+    def test_downloaded_raw_result_recovers_offline_after_write_interruption(self):
+        directory = self.save_manifest(status='submitted', task_id='existing-task', audio_channels=[1])
+        save_json = qwen_job.save_json
+        def interrupted_save(path, value):
+            if Path(path).name == 'result.json':
+                raise OSError('interrupted after downloading raw result')
+            return save_json(path, value)
+        with patch.object(api, 'get_api_key', return_value='synthetic'), \
+             patch.object(api, 'poll_task', return_value=self.task), \
+             patch.object(api, 'request_json', return_value=self.transcript), \
+             patch.object(qwen_job, 'save_json', side_effect=interrupted_save):
+            with self.assertRaises(OSError):
+                qwen_job.execute(self.args, api)
+        self.assertTrue((directory / 'transcript-raw.json').exists())
+        self.assertEqual(json.loads((directory / 'job.json').read_text())['status'], 'result_ready')
+        with patch.object(api, 'get_api_key', side_effect=AssertionError('local recovery needs no key')), \
+             patch.object(api, 'poll_task', side_effect=AssertionError('old task URL need not refresh')), \
+             patch.object(api, 'request_json', side_effect=AssertionError('result URL may have expired')), \
+             patch.object(api, 'upload_temporary', side_effect=AssertionError('no second upload')):
+            result = qwen_job.execute(self.args, api)
+        self.assertEqual(result['text'], '测试产品')
+        self.assertTrue((directory / 'result.json').exists())
+        self.assertEqual(json.loads((directory / 'job.json').read_text())['status'], 'completed')
+
+
+    def test_damaged_raw_result_only_redownloads_existing_task_result(self):
+        directory = self.save_manifest(status='result_ready', task_id='existing-task', audio_channels=[1])
+        qwen_job.save_json(directory / 'task-response.json', self.task)
+        for damaged in ('{"transcripts":', '{"transcripts":[]}', '[]'):
+            with self.subTest(damaged=damaged):
+                manifest = json.loads((directory / 'job.json').read_text())
+                manifest['status'] = 'result_ready'
+                qwen_job.save_json(directory / 'job.json', manifest)
+                (directory / 'result.json').unlink(missing_ok=True)
+                (directory / 'transcript-raw.json').write_text(damaged)
+                with patch.object(api, 'get_api_key', return_value='synthetic'), \
+                     patch.object(api, 'poll_task', side_effect=AssertionError('no new poll')), \
+                     patch.object(api, 'upload_temporary', side_effect=AssertionError('no second upload')), \
+                     patch.object(api, 'request_json', return_value=self.transcript) as request:
+                    self.assertEqual(qwen_job.execute(self.args, api)['text'], '测试产品')
+                self.assertEqual(request.call_count, 1)
+                self.assertEqual(request.call_args.args, ('https://result.aliyuncs.com/a',))
+                self.assertNotIn('method', request.call_args.kwargs)
 
 
 if __name__=='__main__':unittest.main()

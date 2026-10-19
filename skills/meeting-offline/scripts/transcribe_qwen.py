@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.client
 import json
 import math
 import mimetypes
@@ -12,6 +13,7 @@ import shutil
 import os
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import time
@@ -152,6 +154,49 @@ def direct_aliyun(url: str) -> bool:
     return NETWORK_ROUTE == "direct" and (host == "aliyuncs.com" or host.endswith(".aliyuncs.com"))
 
 
+class _BeforeRequestError(OSError):
+    """A typed connection failure observed before any origin request was attempted."""
+
+
+def _request_opener(url: str, state: dict[str, int]):
+    # URLError alone gives no send-phase information. Complete TCP, proxy CONNECT,
+    # and TLS before invoking request(); share this guard across redirect connections.
+    class ConnectFirst:
+        def request(self, *args, **kwargs):
+            try:
+                self.connect()
+            except OSError as exc:
+                # TCP, proxy CONNECT and TLS failures cannot submit an origin
+                # request. Phase, not errno, proves safety for the first attempt.
+                if not state['requests_started']:
+                    raise _BeforeRequestError(str(exc)) from exc
+                raise
+            # No implicit reconnect is allowed after this boundary. Even a sendall
+            # failure with ECONNREFUSED may have sent part of the request already.
+            self.auto_open = False
+            state['requests_started'] += 1
+            return super().request(*args, **kwargs)
+
+    class HTTPConnection(ConnectFirst, http.client.HTTPConnection):
+        pass
+
+    class HTTPSConnection(ConnectFirst, http.client.HTTPSConnection):
+        pass
+
+    class HTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(HTTPConnection, req)
+
+    class HTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(HTTPSConnection, req, context=self._context)
+
+    handlers = [HTTPHandler(), HTTPSHandler()]
+    if direct_aliyun(url):
+        handlers.append(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener(*handlers)
+
+
 def request_json(
     url: str,
     *,
@@ -169,18 +214,25 @@ def request_json(
         headers["Content-Type"] = "application/json"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    state = {'requests_started': 0}
     try:
-        with (urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=timeout)
-              if direct_aliyun(url) else urllib.request.urlopen(request, timeout=timeout)) as response:
+        with _request_opener(url, state).open(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         hint = HTTP_HINTS.get(exc.code, '服务暂时出错' if exc.code >= 500 else '请求被拒绝')
-        # 4xx means the provider rejected the request without running it.
+        # Only a rejection of the initial request proves it was not processed.
+        # A redirected GET may fail after the original POST already ran, even at the same URL.
         raise TranscriptionError(f"阿里云返回 HTTP {exc.code}：{hint}。详情：{body[:500]}",
-                                 not_processed=400 <= exc.code < 500 and exc.code != 408) from exc
+                                 not_processed=state['requests_started'] <= 1
+                                 and 400 <= exc.code < 500 and exc.code != 408) from exc
     except urllib.error.URLError as exc:
-        raise TranscriptionError(f"连不上阿里云：{exc.reason}。请检查网络后重试。", not_processed=True) from exc
+        if isinstance(exc.reason, _BeforeRequestError):
+            raise TranscriptionError(f"阿里云尚未连接，请求未发出：{exc.reason}。请检查网络后重试。",
+                                     not_processed=True) from exc
+        # Unknown wrappers and failures after request() starts (including timeouts) remain
+        # uncertain; their text and errno cannot prove that no bytes were sent.
+        raise TranscriptionError(f"阿里云连接中断：{exc.reason}。请检查网络；已提交请求的处理结果可能不确定。") from exc
     except json.JSONDecodeError as exc:
         raise TranscriptionError("阿里云返回的内容无法解析。") from exc
 

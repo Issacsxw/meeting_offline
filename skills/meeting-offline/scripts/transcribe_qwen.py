@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import errno
 import http.client
 import json
 import math
@@ -167,9 +166,9 @@ def _request_opener(url: str, state: dict[str, int]):
             try:
                 self.connect()
             except OSError as exc:
-                if (not state['requests_started'] and (isinstance(exc, (socket.gaierror, socket.timeout, TimeoutError))
-                        or exc.errno in (errno.ECONNREFUSED, errno.ENETUNREACH,
-                                         errno.EHOSTUNREACH, errno.ENETDOWN, errno.ETIMEDOUT))):
+                # TCP, proxy CONNECT and TLS failures cannot submit an origin
+                # request. Phase, not errno, proves safety for the first attempt.
+                if not state['requests_started']:
                     raise _BeforeRequestError(str(exc)) from exc
                 raise
             # No implicit reconnect is allowed after this boundary. Even a sendall

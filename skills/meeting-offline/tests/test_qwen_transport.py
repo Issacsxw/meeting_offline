@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import socket
+import ssl
 import sys
 import tempfile
 import unittest
@@ -176,6 +177,42 @@ class RealRequestTransportTests(unittest.TestCase):
                             failure = patch.object(sock, 'makefile', side_effect=TimeoutError('synthetic CONNECT timeout'))
                         else:
                             failure = patch('ssl.SSLContext.wrap_socket', side_effect=TimeoutError('synthetic TLS timeout'))
+                        with failure, self.assertRaises(api.TranscriptionError) as caught:
+                            qwen_job.execute(args, api)
+                        self.assertTrue(caught.exception.not_processed)
+                        self.assertEqual(json.loads((Path(args.job_dir) / 'job.json').read_text())['status'], 'failed')
+                        self.assertEqual(qwen_job.execute(args, api)['text'], '合成测试')
+                        self.assertEqual(mocks[7].call_count, int(duration == 400))
+                    self.assertEqual(sum(data.startswith(b'CONNECT ') for data in sock.sent), int(route == 'proxy'))
+                    self.assertFalse(any(data.startswith(b'POST ') for data in sock.sent))
+                    self.assertEqual(sum(data.startswith(b'POST ') for s in sockets[1:] for data in s.sent), 1)
+
+    def test_https_certificate_proxy_407_and_tls_reset_retry_safely(self):
+        for route, phase in (('direct', 'certificate'), ('proxy', 'certificate'), ('proxy', 'proxy_407'),
+                             ('direct', 'tls_reset'), ('proxy', 'tls_reset')):
+            for duration in (60, 400):
+                with self.subTest(route=route, phase=phase, duration=duration):
+                    args = self.args(duration, route, phase)
+                    sock = SyntheticSocket(response_bytes({}), proxy=route == 'proxy')
+                    sockets = []
+                    replies = [self.short] if duration == 60 else [{'output': {'task_id': 'synthetic-task'}}, self.raw]
+
+                    def connect(*a, **kw):
+                        if not sockets:
+                            sockets.append(sock)
+                            return sock
+                        connected = SyntheticSocket(response_bytes(replies.pop(0)), proxy=route == 'proxy')
+                        sockets.append(connected)
+                        return connected
+
+                    with self.transport(route, connect) as mocks:
+                        if phase == 'proxy_407':
+                            sock.responses[0] = b'HTTP/1.1 407 Proxy Authentication Required\r\n\r\n'
+                            failure = contextlib.nullcontext()
+                        else:
+                            error = (ssl.SSLCertVerificationError(1, 'synthetic certificate verification failed')
+                                     if phase == 'certificate' else ConnectionResetError(errno.ECONNRESET, 'synthetic TLS handshake reset'))
+                            failure = patch('ssl.SSLContext.wrap_socket', side_effect=error)
                         with failure, self.assertRaises(api.TranscriptionError) as caught:
                             qwen_job.execute(args, api)
                         self.assertTrue(caught.exception.not_processed)

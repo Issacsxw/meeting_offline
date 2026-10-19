@@ -19,7 +19,7 @@
     "skills/meeting-offline/references/portability.md": "b9b519dabdd0f89ccfe61d73ed9bbaf49759c1e06d12fc0abfe7de68042df0f9",
     "skills/meeting-offline/references/publish-html.md": "387770fdbb1eeba907dbeeaef75126e6da0cdc1d7eedc0bc7d54199bd044ba24",
     "skills/meeting-offline/references/roles.md": "b2b63d1a35818256bcd1a4a30a16da432e9c2f3ddadb437ac37a10d3c5f9791a",
-    "skills/meeting-offline/references/transcription-options.md": "6b4d671f113a68248e03f948afb0d111b0eebedc32d276a55c7914eaa3f55ce9",
+    "skills/meeting-offline/references/transcription-options.md": "8a0b815ad1bf9455474f832ff2e8f0efc0db5d10c931b548d1ebdb431046cbf1",
     "skills/meeting-offline/references/transcription.md": "648510824c067658c6c5ff37a8c25c8e6dcee1121b91a1655fb8cf89c3ffa0c9",
     "skills/meeting-offline/references/voice-memos-setup.md": "392588626b3b4d67710f56f2afb4c74270486c667d4af00a4af447590b17ec10",
     "skills/meeting-offline/references/workflow.md": "016eaad1a4c1f80df29b8d0ec686499dbce3c3594c5eca22e55260d68d1e2803",
@@ -42,7 +42,7 @@
     "skills/meeting-offline/scripts/setup_keychain.sh": "eb6ebdc09a5adbc9be4f5ef449072cf91ad76e71ea7749c4878956c5e119fbea",
     "skills/meeting-offline/scripts/term_review.py": "2f3d2804867bdc8fc38af3cb6dcd3813ab1e9084d199e87c3c1c02a381b7a01a",
     "skills/meeting-offline/scripts/terms.py": "144e97d43aae45c587c09739bb2eb2b7c719bff689686792e175d6e53c4d96c5",
-    "skills/meeting-offline/scripts/transcribe_local.py": "8815abbd0deeb7346ade3b4e72b9b57e762950c70b8ef8c697a9f14367b09e0d",
+    "skills/meeting-offline/scripts/transcribe_local.py": "6504d93e2999f85d528ab75cbe950634747a8a2408d339d5bf871959291cfc70",
     "skills/meeting-offline/scripts/transcribe_qwen.py": "5ef71cf36131dd4d0b195c068df002074bad2d9c421882b5a6dcf7f7ebc4c371",
     "skills/meeting-offline/scripts/workspace.py": "1a86eb4b346fb782484c190bfff746d8810afd0ce592ee4a2fc824ae10b4c782",
     "skills/meeting-offline/tests/test_archive_meeting.py": "f4b498d40d270f95420386fc005920c07c61125ce302c59b9ba3f5dffc9b30e1",
@@ -60,7 +60,7 @@
     "skills/meeting-offline/tests/test_separation.py": "c8abce10cc6256572b77a2acff6f2a69d987eca451e6afa9485df1bf73a2e3b8",
     "skills/meeting-offline/tests/test_term_review.py": "f99790782546830e68fe83cfdead2b408de4b6c1a2ef30953fb7c53c258d6318",
     "skills/meeting-offline/tests/test_terms.py": "0e14d1e837e33f5be3547a0ba5a8b67c1e894ab7875332617238cfb1824d19eb",
-    "skills/meeting-offline/tests/test_transcribe_local.py": "f92ee60ac59d3d2830a065cee8ea3cb9e667eb486538370fd96542ad11f04112",
+    "skills/meeting-offline/tests/test_transcribe_local.py": "528d6f7c672ad57ef48bf5698e29ecb9e322c68ebfd9a81c9ca6d71264c9b2ff",
     "skills/meeting-offline/tests/test_transcribe_qwen.py": "92da429bcd39cebcd6678a28b02e56a9fe671f84abd1d241a2812df83f0240c3",
     "skills/meeting-offline/tests/test_workspace.py": "bbf1f3c47f9b9b41c330eee7b967e22f35877164615bc52403d3bd6a0a35a1d9"
   }

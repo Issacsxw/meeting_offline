@@ -92,7 +92,7 @@ def load_hotwords(path):
 
 
 def cache_path(audio_sha, engine, model, speakers=None, hotwords=()):
-    # Without hotwords the name is the one earlier versions used, so their cached results are reused.
+    # Keep the old filename without hotwords; only device-marked results can be reused.
     tag = '-' + hashlib.sha256('\n'.join(hotwords).encode()).hexdigest()[:8] if hotwords else ''
     name = f'{audio_sha[:24]}-{engine}-{model}-{speakers or "auto"}{tag}.json'
     return device_context.paths()['jobs'] / 'local' / name
@@ -228,7 +228,7 @@ def valid_cache_rows(rows, needs):
 
 
 def load_json(path, needs):
-    """A cached file, or None when missing or damaged (an interrupted write); damaged files are set aside."""
+    """Read this device's cache; ignore unbound files and set damaged, device-marked files aside."""
     if not path.exists():
         return None
     try:
@@ -236,11 +236,14 @@ def load_json(path, needs):
     except (ValueError, OSError):
         data = None
     if isinstance(data, dict):
+        if data.get('device_id') is None:
+            # Its origin cannot be verified, regardless of whether its rows are usable.
+            # Keep it until a successful recomputation atomically replaces the cache.
+            note(f'缓存未标注设备，保留原文件并忽略：{path.name}，这一步会重新计算。')
+            return None
         # Another device's file is refused, not discarded, even when its rows are unusable.
-        if data.get('device_id') is not None:
-            device_context.require_device(data['device_id'], path)
+        device_context.require_device(data['device_id'], path)
         if valid_cache_rows(data.get(needs), needs):
-            device_context.require_device(data.get('device_id'), path)
             return data
     broken = path.with_name(path.name + '.damaged')
     path.replace(broken)

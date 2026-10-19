@@ -278,7 +278,7 @@ m4a、wav、mp4，手机和电脑自带的录音机、语音备忘录、会议�
 <summary>从旧版 meeting-minutes 升级会丢数据吗？</summary>
 <br>
 
-不会。运行新版 `install.py`，旧技能会移到 `skill-backups/`，原有的人名、术语和转写缓存继续可用。
+不会。运行新版 `install.py`，旧技能会移到 `skill-backups/`，原有的人名、术语继续保留。从 11.x 升级时，没有设备标记的旧本地转写缓存无法验证归属，第一次处理同一录音会重新识别一次；成功后会保存带本机设备标记的新缓存，之后正常复用。
 </details>
 
 <details>

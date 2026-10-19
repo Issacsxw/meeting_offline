@@ -91,7 +91,7 @@ class LocalTests(unittest.TestCase):
         self.assertEqual(biased['hotwords_used'], ['贝联', '净草签', '有效量房'])
         self.assertEqual(FakeAutoModel.calls[-1][2]['hotword'], '贝联 净草签 有效量房')
         self.assertNotIn('hotword', FakeAutoModel.calls[1][2])
-        # Without hotwords the cache name is the one earlier versions used, so their results are still found.
+        # The old filename stays discoverable; reuse also requires the current device marker.
         self.assertEqual(local.cache_path('a' * 64, 'funasr', 'paraformer-zh').name, 'a' * 24 + '-funasr-paraformer-zh-auto.json')
         with self.assertRaisesRegex(local.LocalError, '热词'):
             words.write_text('["贝联"]', encoding='utf-8'); local.load_hotwords(words)
@@ -257,6 +257,42 @@ class LocalTests(unittest.TestCase):
             local.load_json(path, 'segments')
         self.assertEqual(path.read_bytes(), original)
         self.assertFalse(path.with_name(path.name + '.damaged').exists())
+
+    def test_unbound_cache_is_ignored_without_changing_it(self):
+        cases = [('pieces', [[0, 1, '原文']]), ('pieces', [[0, 1]]),
+                 ('turns', [[0, 1, 0]]), ('turns', [[0, 1, None]]),
+                 ('segments', [{'start_ms': 0, 'end_ms': 1, 'text': '原文', 'speaker_id': 0}]),
+                 ('segments', [None])]
+        for marker in ({}, {'device_id': None}):
+            for index, (needs, rows) in enumerate(cases):
+                with self.subTest(marker=marker, needs=needs, rows=rows):
+                    path = Path(self.tmp.name) / f'unbound-{len(marker)}-{index}.json'
+                    path.write_text(json.dumps({**marker, needs: rows}), encoding='utf-8')
+                    original = path.read_bytes()
+                    self.assertIsNone(local.load_json(path, needs))
+                    self.assertEqual(path.read_bytes(), original)
+                    self.assertFalse(path.with_name(path.name + '.damaged').exists())
+
+    def test_unbound_whisper_cache_and_checkpoints_are_recomputed_once(self):
+        modules, models = self.whisper()
+        with modules, models:
+            first = local.transcribe(self.audio, 'whisper')
+        for path in Path(first['result_path']).parent.glob('*.json'):
+            data = json.loads(path.read_text(encoding='utf-8'))
+            data.pop('device_id')
+            path.write_text(json.dumps(data), encoding='utf-8')
+        modules, models = self.whisper(turns=((0, 4, 3),))
+        with modules, models:
+            result = local.transcribe(self.audio, 'whisper')
+        self.assertFalse(result['reused'])
+        self.assertEqual(len(self.runs), 1)
+        self.assertEqual({s['speaker_id'] for s in result['segments']}, {3})
+        for path in Path(first['result_path']).parent.glob('*.json'):
+            self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['device_id'], local.device_context.device_id())
+        modules, models = self.whisper()
+        with modules, models:
+            self.assertTrue(local.transcribe(self.audio, 'whisper')['reused'])
+        self.assertEqual(self.runs, [])
 
     def test_atomic_checkpoint_failure_preserves_previous_data(self):
         path = Path(self.tmp.name) / 'checkpoint.json'

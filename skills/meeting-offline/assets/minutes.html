@@ -161,6 +161,7 @@
 <script type="application/json" id="meeting-speaker-edits">__SPEAKER_EDITS__</script>
 <script type="application/json" id="minutes-data">__MEETING_DATA__</script>
 <section id="audit-warning" class="audit-warning" hidden></section>
+<section id="speaker-rename-warning" class="audit-warning" role="status" aria-live="polite" hidden></section>
 <section id="speaker-panel" class="speaker-panel" hidden><strong>说话人</strong><div id="speaker-rows"></div><small>仅点击“确认 / 保存姓名”的身份会在导回工作区时确认。保存 HTML 保留修改。</small></section>
 <script>
 'use strict';
@@ -180,7 +181,7 @@ const $=selector=>document.querySelector(selector);
 const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e};
 let dirty=false,currentImageObjectURL=null;
 function status(value){$('#status').textContent=value}
-function changed(){dirty=true;status('有未保存的修改；保存 HTML 可在下次打开时继续编辑。')}
+function changed(){dirty=true;renderSpeakerRenameWarning(collect());status('有未保存的修改；保存 HTML 可在下次打开时继续编辑。')}
 function editable(value,label,cls){const e=element('div',value,'field '+(cls||''));e.contentEditable='true';e.setAttribute('role','textbox');e.setAttribute('aria-label',label);return e}
 function text(e){return e.innerText.replace(/\u00a0/g,' ').trim()}
 function syncCounts(){const rows=[...$('#todos').children];$('#no-todos').hidden=!!rows.length;$('#todos-wrap').hidden=!rows.length;$('#point-count').textContent=`${$('#points').children.length} 个议题`;const done=rows.filter(r=>r.querySelector('input').checked).length;$('#todo-count').textContent=done?`${done} / ${rows.length} 已完成`:`${rows.length} 项行动`}
@@ -208,11 +209,36 @@ function renameSpeakerDocument(data,key,name){
  const tokens=[...aliases.keys()].sort((a,b)=>b.length-a.length);
  const replace=value=>{value=String(value||'');let out='',i=0;while(i<value.length){const alias=tokens.find(a=>value.startsWith(a,i));if(alias){const code=/^[^\s]+-[A-Z]+$/.test(alias)||/^说话人\s+\S+$/.test(alias),word=code?/[A-Za-z0-9_]/:/[\p{L}\p{N}_]/u,before=i?value[i-1]:'',after=value[i+alias.length]||'',safe=(code||[...alias].length>=2)&&(!before||!word.test(before))&&(!after||!word.test(after));out+=safe&&aliases.get(alias)===key?name:alias;i+=alias.length}else out+=value[i++]}return out};
  const exact=value=>aliases.get(String(value))===key?name:replace(value);
- result.participants=String(result.participants||'').split('、').map(exact).join('、');
+ // The final participant can be followed by the generated unknown-attendee count.
+ // Keep this exact-field exception out of prose, where Chinese word boundaries are ambiguous.
+ const participants=String(result.participants||''),suffix=participants.match(/等\d+人$/);
+ result.participants=(suffix?participants.slice(0,-suffix[0].length):participants).split('、').map(exact).join('、')+(suffix?suffix[0]:'');
  for(const field of ['summary','topic'])result[field]=replace(result[field]);
  for(const p of result.points||[]){p.title=exact(p.title);p.text=replace(p.text)}
  for(const t of result.todos||[]){t.task=replace(t.task);t.owner=t.owner_key===key?name:exact(t.owner)}
+ if(target.name&&target.name!==name)target.previous_names=[...new Set([...(target.previous_names||[]),target.name])];
  target.name=name;target.role_confirmed=true;target.role_source='user';return result;
+}
+function speakerRenameIssues(data){
+ const rows=data.speakers||[],oldNames=[...new Set(rows.flatMap(s=>(s.previous_names||[]).filter(n=>typeof n==='string'&&n&&n!==s.name)))];
+ if(!oldNames.length)return[];
+ // Longest known names protect a renamed prefix (e.g. 林悦 -> 林悦明) and other speakers.
+ const tokens=[...new Set([...oldNames,...rows.map(s=>s.name).filter(Boolean)])].sort((a,b)=>b.length-a.length);
+ const fields=[['会议主题',data.topic],['参会人',data.participants],['会议概要',data.summary]];
+ for(const [i,p] of (data.points||[]).entries())fields.push(['要点 '+(i+1)+' 标题',p.title],['要点 '+(i+1)+' 正文',p.text]);
+ for(const [i,t] of (data.todos||[]).entries())fields.push(['Todo '+(i+1)+' 事项',t.task],['Todo '+(i+1)+' 负责人',t.owner],['Todo '+(i+1)+' 期限',t.deadline]);
+ const issues=[];for(const [where,value] of fields){const found=new Set(),text=String(value||'');let i=0;while(i<text.length){const token=tokens.find(n=>text.startsWith(n,i));if(token){if(oldNames.includes(token))found.add(token);i+=token.length}else i++}for(const name of found)issues.push({where,name})}
+ return issues;
+}
+function renderSpeakerRenameWarning(data){
+ const issues=speakerRenameIssues(data),box=$('#speaker-rename-warning');box.replaceChildren();box.hidden=!issues.length;
+ if(issues.length){box.append(element('strong','正文里可能还有旧名字，请核对'));const list=element('ul');for(const issue of issues)list.append(element('li',issue.where+'：'+issue.name));box.append(list,element('small','请点击正文逐处核对；自动改名仅替换能确定边界的姓名。'))}
+ return issues;
+}
+function confirmSpeakerRenameExport(data,action){
+ const issues=renderSpeakerRenameWarning(data);if(!issues.length)return true;
+ const message='正文里可能还有旧名字：'+[...new Set(issues.map(issue=>issue.name))].join('、')+'。请核对正文。';
+ status(message);return window.confirm(message+'\n仍要'+action+'吗？');
 }
 function renderSpeakerPanel(){
  $('#speaker-panel').hidden=!speakerRows.length;
@@ -236,7 +262,7 @@ $('#close-info').onclick=()=>$('#info-dialog').close();
 $('#apply-info').onclick=()=>{$('#meeting-time').textContent=$('#info-time').value.trim();$('#participants').textContent=$('#info-people').value.trim();$('#summary').textContent=$('#info-summary').value.trim();syncInfo();changed();$('#info-dialog').close()};
 $('#add-point').onclick=()=>{$('#points').append(pointRow({title:'新增要点',text:'填写议题结论或讨论方向'}));syncCounts();changed()};
 $('#add-todo').onclick=()=>{$('#todos').append(todoRow({task:'填写事项及交付物',owner:'—',deadline:'—'}));syncCounts();changed()};
-$('#save-html').onclick=()=>{const data=collect(),clone=document.documentElement.cloneNode(true);clone.querySelector('#minutes-data').textContent=JSON.stringify(data).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');clone.querySelector('#meeting-speaker-edits').textContent=JSON.stringify(speakerEdits).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');clone.querySelectorAll('dialog').forEach(d=>d.removeAttribute('open'));clone.querySelector('#png-preview').removeAttribute('src');clone.querySelector('#download-image').removeAttribute('href');clone.querySelector('#status').textContent='';clone.querySelector('#export-png').disabled=false;clone.querySelectorAll('#info-dialog input,#info-dialog textarea').forEach(e=>{e.value='';e.removeAttribute('value');e.textContent=''});const blob=new Blob(['<!doctype html>\n'+clone.outerHTML],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob);download(url,filename('html'));setTimeout(()=>URL.revokeObjectURL(url),30000);dirty=false;status('已下载可编辑 HTML；下次打开下载的文件即可继续修改。')};
+$('#save-html').onclick=()=>{const data=collect();if(!confirmSpeakerRenameExport(data,'保存 HTML'))return;const clone=document.documentElement.cloneNode(true);clone.querySelector('#minutes-data').textContent=JSON.stringify(data).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');clone.querySelector('#meeting-speaker-edits').textContent=JSON.stringify(speakerEdits).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');clone.querySelectorAll('dialog').forEach(d=>d.removeAttribute('open'));clone.querySelector('#png-preview').removeAttribute('src');clone.querySelector('#download-image').removeAttribute('href');clone.querySelector('#status').textContent='';clone.querySelector('#export-png').disabled=false;clone.querySelectorAll('#info-dialog input,#info-dialog textarea').forEach(e=>{e.value='';e.removeAttribute('value');e.textContent=''});const blob=new Blob(['<!doctype html>\n'+clone.outerHTML],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob);download(url,filename('html'));setTimeout(()=>URL.revokeObjectURL(url),30000);dirty=false;status('已下载可编辑 HTML；下次打开下载的文件即可继续修改。')};
 
 // Canvas uses only local text and browser fonts; no external rendering service.
 const fontStacks={sans:'"Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',serif:'"Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif',number:'"Lora", Georgia, "Times New Roman", serif',latin:'"Poppins", -apple-system, sans-serif'};
@@ -346,9 +372,9 @@ async function makePng(data){if(document.fonts?.ready)await document.fonts.ready
  y+=48;if(y>14000)throw Error('内容较长，请精简或拆分后再导出图片。');const scale=2;canvas.width=width*scale;canvas.height=Math.ceil(y)*scale;ctx.scale(scale,scale);ctx.fillStyle=paper;ctx.fillRect(0,0,width,y);ctx.textBaseline='top';
  for(const op of ops){ctx.fillStyle=op.color;if(op.kind==='rect'){ctx.beginPath();ctx.roundRect(op.x,op.y,op.w,op.h,op.r);ctx.fill()}else if(op.kind==='circle'){ctx.beginPath();ctx.arc(op.x,op.y,op.r,0,Math.PI*2);ctx.fill()}else if(op.kind==='rich'){op.lines.forEach((runs,i)=>{let x=op.x;for(const run of runs){ctx.font=font(op.size,run.weight,op.family);ctx.fillStyle=run.color;ctx.fillText(run.text,x,op.y+i*op.height);const w=ctx.measureText(run.text).width;if(run.strike){ctx.fillStyle=T.done;ctx.fillRect(x,op.y+i*op.height+op.size*0.62,w,1)}x+=w}})}else{ctx.font=font(op.size,op.weight,op.family);ctx.textAlign=op.align;op.lines.forEach((value,i)=>ctx.fillText(value,op.x,op.y+i*op.height));ctx.textAlign='left'}}
  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw Error('图片编码未完成，请重试。');return{url:canvas.toDataURL('image/png'),downloadUrl:URL.createObjectURL(blob),width:canvas.width,height:canvas.height}}
-$('#export-png').onclick=async()=>{const button=$('#export-png');button.disabled=true;status('正在生成图片…');try{const png=await makePng(collect());if(currentImageObjectURL)URL.revokeObjectURL(currentImageObjectURL);currentImageObjectURL=png.downloadUrl;$('#png-preview').src=png.url;$('#download-image').href=png.downloadUrl;$('#download-image').download=filename('png');$('#export-size').textContent=`${png.width} × ${png.height} 像素`;$('#image-dialog').showModal();status('图片已生成，可预览并下载 PNG。')}catch(error){status('导出未完成：'+error.message)}finally{button.disabled=false}};
+$('#export-png').onclick=async()=>{if(!confirmSpeakerRenameExport(collect(),'导出 PNG'))return;const button=$('#export-png');button.disabled=true;status('正在生成图片…');try{const png=await makePng(collect());if(currentImageObjectURL)URL.revokeObjectURL(currentImageObjectURL);currentImageObjectURL=png.downloadUrl;$('#png-preview').src=png.url;$('#download-image').href=png.downloadUrl;$('#download-image').download=filename('png');$('#export-size').textContent=`${png.width} × ${png.height} 像素`;$('#image-dialog').showModal();status('图片已生成，可预览并下载 PNG。')}catch(error){status('导出未完成：'+error.message)}finally{button.disabled=false}};
 $('#close-preview').onclick=()=>$('#image-dialog').close();
-render(seed);renderSpeakerPanel();renderAuditWarning();
+render(seed);renderSpeakerPanel();renderAuditWarning();renderSpeakerRenameWarning(seed);
 // Keep panels above the actual printable minutes for every layout.
-$('#sheet').before($('#audit-warning'),$('#speaker-panel'));
+$('#sheet').before($('#audit-warning'),$('#speaker-rename-warning'),$('#speaker-panel'));
 </script></body></html>

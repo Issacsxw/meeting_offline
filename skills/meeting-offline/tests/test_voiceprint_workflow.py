@@ -293,9 +293,92 @@ class VoiceprintWorkflowTests(unittest.TestCase):
         self.assertEqual(w.read(self.root / 'analysis.json')['sources']['m']['reader']['summary'], '林悦认为报价可行。')
         files = w.read(self.root / 'exports/latest.json')['files']['m']
         self.assertNotIn('html', files); self.assertIn('reader_error', files)
+        self.assertIn('林悦', self.state()['reader_stale_sources']['m']['old_names'])
+        w.set_analysis(self.root, analysis, self.revision())
+        still_blocked = w.read(self.root / 'exports/latest.json')['files']['m']
+        self.assertNotIn('html', still_blocked)
+        self.assertIn('林悦', still_blocked['reader_error'])
         analysis['sources']['m']['reader']['summary'] = '张三认为报价可行。'
         w.set_analysis(self.root, analysis, self.revision())
         self.assertIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+
+    def test_rename_analysis_and_state_roll_back_on_commit_write_failure(self):
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['summary'] = '林悦：提供报价。'
+        w.set_analysis(self.root, analysis, self.revision())
+        for target in ('analysis.json', 'state.json', 'manifest.json', 'exports/latest.json'):
+            with self.subTest(target=target):
+                paths = [self.root / p for p in ('analysis.json', 'state.json', 'manifest.json', 'exports/latest.json')]
+                before = {p: p.read_bytes() for p in paths}
+                original_write = w.write
+                def fail(path, value):
+                    if Path(path) == self.root / target:
+                        raise OSError('injected commit failure')
+                    return original_write(path, value)
+                with mock.patch.object(w, 'write', side_effect=fail), mock.patch.object(voiceprint, 'enroll_confirmed'):
+                    with self.assertRaisesRegex(OSError, 'injected'):
+                        w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+                self.assertEqual({p: p.read_bytes() for p in paths}, before)
+
+    def test_resubmitted_decision_with_old_name_stays_blocked(self):
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['summary'] = '林悦认为报价可行。'
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+        analysis['sources']['m']['reader']['summary'] = '新概要。'
+        analysis['sources']['m']['decisions'] = [{'text': '林悦认为报价可行。', 'status': 'open', 'evidence': [1]}]
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertNotIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+
+    def test_old_name_in_fallback_core_point_cannot_clear_stale_marker(self):
+        state = self.state()
+        state['speakers'][0]['core_points'] = [{'text': '林悦认为报价可行。'}]
+        w.write(self.root / 'state.json', state)
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['points'] = []
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertNotIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+        self.assertIn('林悦', self.state()['reader_stale_sources']['m']['remaining_old_names'])
+
+    def test_rename_to_longer_name_still_detects_old_prefix_prose(self):
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['summary'] = '林悦认为报价可行。'
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '林悦明'}])), self.revision())
+        self.assertNotIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+        analysis['sources']['m']['reader']['summary'] = '林悦明认为报价可行。'
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+
+    def test_stale_marker_remembers_every_old_name_in_batch(self):
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['summary'] = '林悦：负责报价。陈思远认为报价可行。'
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}, {'key': 'm-B', 'name': '李四'}])), self.revision())
+        analysis['sources']['m']['reader']['summary'] = '林悦：负责报价。李四认为报价可行。'
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertNotIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+        self.assertIn('林悦', self.state()['reader_stale_sources']['m']['remaining_old_names'])
+
+    def test_old_name_in_action_deadline_blocks_renamed_export(self):
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['todos'] = []
+        analysis['sources']['m']['actions'][0]['deadline_text'] = '等林悦回复'
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+        self.assertNotIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+        self.assertIn('林悦', self.state()['reader_stale_sources']['m']['remaining_old_names'])
+
+    def test_old_longer_name_is_not_hidden_by_new_shorter_name(self):
+        self.assertEqual(w.remaining_old_names('林悦明认为报价可行。', ['林悦明'], ['林悦']), ['林悦明'])
+        self.assertEqual(w.remaining_old_names('林悦明认为报价可行。', ['林悦'], ['林悦明']), [])
 
     def test_archive_rejects_direct_draft_and_forged_publication(self):
         latest = w.read(self.root / 'exports/latest.json')
@@ -336,8 +419,12 @@ class VoiceprintWorkflowTests(unittest.TestCase):
         self.assertTrue(issues); self.assertTrue(json.loads(parser.seed)['audit_issues'])
         with self.assertRaisesRegex(ValueError, '核对'):
             w.publish(self.root)
-        with self.assertRaisesRegex(ValueError, 'AI 不能批准'):
-            audit.resolve(self.root, {issues[0]['id']: {'resolution': 'supported', 'note': 'AI 认为没问题'}}, self.revision())
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['points'][1]['text'] = '林悦负责渠道。'
+        w.set_analysis(self.root, analysis, self.revision())
+        forbidden = next(p for p in audit.report(self.root)['issues'] if p['kind'] in ('name', 'negation', 'status'))
+        with self.assertRaises(ValueError):
+            audit.resolve(self.root, {forbidden['id']: {'resolution': 'supported', 'note': 'AI 认为没问题'}}, self.revision())
         self.assertFalse((self.root / 'publication.json').exists())
 
 

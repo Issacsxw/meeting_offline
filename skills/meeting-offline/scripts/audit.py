@@ -357,22 +357,23 @@ def audit(root):
             deadline = todo.get('deadline') or action.get('deadline_text')
             if deadline:
                 for p in check_claim(sid, where + '.deadline', deadline, action.get('evidence', []), texts):
-                    problems.append({**p, 'kind': 'deadline', 'detail': '期限' + p['detail']})
+                    problems.append({**p, 'kind': 'deadline' if p['kind'] == 'fact' else p['kind'],
+                                     'detail': '期限' + p['detail']})
         for n, decision in enumerate(section.get('decisions', [])):
             problems += check_claim(sid, f'decisions[{n}]', decision.get('text', ''), decision.get('evidence', []), texts,
                                     names, [name_of(decision.get('proposer'))], decision.get('status'))
     return problems
 
 
-RESOLUTIONS = {'fixed': '已改正文', 'supported': '机械核验同值换算', 'user_confirmed': '用户确认无误'}
+RESOLUTIONS = {'fixed': '已改正文', 'supported': '已核实事实依据', 'user_confirmed': '用户确认无误'}
 
 
 def resolution_valid(problem, resolution):
-    """Validate a saved resolution against current source text, never its explanatory note.
+    """Check the resolution type, not whether its explanation proves equivalence.
 
-    supported is limited to numeric/date/percentage equivalence; it cannot approve
-    identity, negation, decision status, or infer semantic agreement. Added evidence
-    fields do not change issue IDs, so safe old resolutions remain usable.
+    The assistant may explain numeric/date/time/percentage detector false positives
+    with supported. Identity, negation, and decision status need user confirmation.
+    Apply the same type gate to saved resolutions, including legacy supported ones.
     """
     if not isinstance(resolution, dict):
         return False
@@ -380,40 +381,8 @@ def resolution_valid(problem, resolution):
         return True
     if resolution.get('resolution') != 'supported' or problem.get('kind') not in ('fact', 'deadline'):
         return False
-    texts = problem.get('evidence_texts')
-    if not isinstance(texts, list) or not texts or any(not isinstance(t, str) for t in texts):
-        return False
-    claim = problem.get('claim', '')
-    if not isinstance(claim, str):
-        return False
-    # The general detector deliberately tolerates approximate/colloquial values.
-    # Those shortcuts cannot authorize an override: fail closed on such language.
-    if any(re.search(r'约|大概|左右|多|[五六七八九][六七八九十]十|\d{13}|\.\d{5}|点[零〇一二三四五六七八九]{5}', t) for t in [claim] + texts):
-        return False
-    claimed = facts(claim)
-    evidence = set().union(*(facts(t) for t in texts))
-    allowed = {'number', 'percent', 'date', 'day', 'year'}
-    if not claimed or any(kind not in allowed for kind, value in claimed):
-        return False
-    for fact in claimed:
-        kind, value = fact
-        if fact in evidence:
-            continue
-        if kind == 'date' and ('day', value.split('-')[1]) in evidence:
-            # Do not ignore a contradictory explicit month in the source.
-            if any(k == 'date' and v != value for k, v in evidence):
-                return False
-            continue
-        if kind == 'day' and any(k == 'date' and v.endswith('-' + value) for k, v in evidence):
-            continue
-        return False
-    # Equal digits do not make incompatible units equal (229 days vs 229 yuan).
-    units = re.compile(r'美元|人民币|元|块|天|小时|分钟|台|件|个人|人|倍')
-    claim_units = set(units.findall(claim)); source_units = set(units.findall(' '.join(texts)))
-    canonical = lambda values: {'元' if v in ('块', '人民币') else v for v in values}
-    if claim_units and source_units and not canonical(claim_units).issubset(canonical(source_units)):
-        return False
-    return True
+    note = resolution.get('note')
+    return isinstance(note, str) and bool(note.strip())
 
 
 def report(root):
@@ -448,7 +417,8 @@ def resolve(root, resolutions, expected):
             if key not in problems:
                 raise ValueError(f'问题 {key} 已不存在（可能正文已改）；请重新运行 audit。')
             if not resolution_valid(problems[key], value):
-                raise ValueError(f'{key}: resolution 需 user_confirmed，或机械核验通过的 supported 同值换算；AI 不能批准不一致；'
+                raise ValueError(f'{key}: supported 仅用于数字、日期、时间、比例类问题，且须写明依据；'
+                                 '人名、否定、决定状态须 user_confirmed，AI 不能批准；'
                                  '改了正文的问题会自动消失，不需要登记。')
             note = str(value.get('note', '')).strip()
             if not note:

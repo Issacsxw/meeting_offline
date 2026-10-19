@@ -195,6 +195,58 @@ def commit(root, state, change):
     return export(root)
 
 
+
+def commit_analysis(root, state, change, analysis):
+    """Commit analysis and its state under the caller's workspace lock; roll back failed writes."""
+    root = Path(root)
+    paths = [root / name for name in ('analysis.json', 'state.json', 'manifest.json', 'exports/latest.json')]
+    paths.append(root / 'revisions' / f"{state['revision'] + 1:06}.json")
+    backups = {path: path.read_bytes() if path.exists() else None for path in paths}
+    try:
+        write(root / 'analysis.json', analysis)
+        return commit(root, state, change)
+    except Exception:
+        for path, content in backups.items():
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                # Restore exact bytes independently of the failing JSON writer.
+                fd, temporary = tempfile.mkstemp(prefix='.rollback-', dir=str(path.parent))
+                try:
+                    with os.fdopen(fd, 'wb') as handle:
+                        handle.write(content)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(temporary, path)
+                finally:
+                    if os.path.exists(temporary): os.unlink(temporary)
+        raise
+
+
+def remaining_old_names(prose, old_names, current_names):
+    # Match the longest identity token once: protect new extensions, retain old longer names.
+    tokens = sorted({name for name in list(old_names) + list(current_names) if name}, key=len, reverse=True)
+    if not tokens:
+        return []
+    found = re.findall('|'.join(re.escape(name) for name in tokens), prose)
+    return sorted(set(found).intersection(old_names))
+
+
+def analysis_prose(section):
+    """Only authored prose, never source evidence, speaker keys, or attribution metadata."""
+    values = [section.get('title', '')]
+    reader = section.get('reader', {})
+    values.extend(reader.get(field, '') for field in ('summary', 'topic'))
+    for field, texts in (('points', ('title', 'text')), ('todos', ('task', 'deadline'))):
+        for item in reader.get(field, []):
+            values.extend(item.get(key, '') for key in texts)
+    for field, texts in (('decisions', ('text',)), ('actions', ('task', 'deliverable', 'deadline_text')),
+                         ('open_questions', ('text',))):
+        for item in section.get(field, []):
+            values.extend(item.get(key, '') for key in texts)
+    return '\n'.join(value for value in values if isinstance(value, str))
+
+
 def check_revision(state, expected):
     if type(expected) is not int or expected != state['revision']:
         raise ValueError('页面内容已更新，请刷新后再保存。')
@@ -270,14 +322,18 @@ def save_roles(root, mappings, expected, via='page'):
                                display_name=profile['name'], identity_group=profile['id'], accepted_unknown=False)
             speaker['role_confirmed'] = True
             speaker['role_source'] = 'user'
+        updated_analysis = None
         if via == 'html':
-            sync_reader_names(root, state, old_speakers, [key for key, profile in resolved if profile is not None])
+            updated_analysis = sync_reader_names(root, state, old_speakers, [key for key, profile in resolved if profile is not None])
         import voiceprint
         try:
             voiceprint.enroll_confirmed(root, state, [key for key, profile in resolved if profile is not None])
         except (ValueError, RuntimeError, OSError, ImportError) as error:
             state['voiceprint_enrollment_warning'] = str(error)
-        return commit(root, state, {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'})
+        change = {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'}
+        if updated_analysis is not None:
+            return commit_analysis(root, state, change, updated_analysis)
+        return commit(root, state, change)
 
 
 def sync_reader_names(root, state, old_speakers, keys):
@@ -298,13 +354,18 @@ def sync_reader_names(root, state, old_speakers, keys):
                 new_name = minutes_html.shown_name(speakers[key], display_names())
                 mappings.update({a: new_name for a in (key, old_name) if a != new_name and a not in ambiguous})
         section = analysis.get('sources', {}).get(sid, {})
-        stale = False
+        old_tokens = set(state.get('reader_stale_sources', {}).get(sid, {}).get('old_names', []))
+        current_names = [minutes_html.shown_name(s, display_names()) for s in speakers.values() if s['source_id'] == sid]
+        for key in keys:
+            if old_speakers[key]['source_id'] == sid:
+                before = minutes_html.shown_name(old_speakers[key], display_names())
+                after = minutes_html.shown_name(speakers[key], display_names())
+                if before != after: old_tokens.update((key, before))
+        remaining = set()
         def replace(value):
-            nonlocal stale
             result = minutes_html.replace_speaker_names(value, mappings, aliases)
             # No guessing when a name sits inside ambiguous text or is a single character.
-            if any(old in result and old not in new for old, new in mappings.items()) or any(name in result for name in ambiguous):
-                stale = True
+            remaining.update(remaining_old_names(result, old_tokens, current_names))
             return result
         if isinstance(section.get('title'), str): section['title'] = replace(section['title'])
         for speaker in state['speakers']:
@@ -322,12 +383,16 @@ def sync_reader_names(root, state, old_speakers, keys):
             for item in reader.get(field, []):
                 for name in texts:
                     if isinstance(item.get(name), str): item[name] = replace(item[name])
-        for field, text_field in (('decisions', 'text'), ('actions', 'task'), ('open_questions', 'text')):
+        for field, text_fields in (('decisions', ('text',)), ('actions', ('task', 'deliverable', 'deadline_text')), ('open_questions', ('text',))):
             for item in section.get(field, []):
-                if isinstance(item.get(text_field), str): item[text_field] = replace(item[text_field])
-        if stale:
-            state.setdefault('reader_stale_sources', {})[sid] = {'reason': 'speaker_rename_requires_prose_review'}
-    write(Path(root) / 'analysis.json', analysis)
+                for text_field in text_fields:
+                    if isinstance(item.get(text_field), str): item[text_field] = replace(item[text_field])
+        remaining.update(remaining_old_names(analysis_prose(section), old_tokens, current_names))
+        if remaining or sid in state.get('reader_stale_sources', {}):
+            state.setdefault('reader_stale_sources', {})[sid] = {
+                'reason': 'speaker_rename_requires_prose_review', 'old_names': sorted(old_tokens),
+                'remaining_old_names': sorted(remaining)}
+    return analysis
 
 
 def add_term(root, payload, expected):
@@ -456,10 +521,29 @@ def set_analysis(root, analysis, expected):
     root = Path(root)
     with locked(root):
         state = read(root / 'state.json'); check_revision(state, expected)
-        validate_analysis(root, analysis); write(root / 'analysis.json', analysis)
-        for sid in analysis['sources']:
-            state.setdefault('reader_stale_sources', {}).pop(sid, None)
-        return commit(root, state, {'kind': 'analysis_updated', 'actor': 'assistant', 'semantic_review': 'pending'})
+        validate_analysis(root, analysis)
+        for sid, section in analysis['sources'].items():
+            stale = state.setdefault('reader_stale_sources', {}).get(sid)
+            if stale is None:
+                continue
+            names = stale.get('old_names')
+            # Legacy markers lacking names cannot silently authorize old prose.
+            if not names:
+                continue
+            prose = analysis_prose(section)
+            # Text minutes always include these cards; HTML also uses them as a fallback.
+            for speaker in state['speakers']:
+                if speaker['source_id'] == sid:
+                    for point in speaker.get('core_points', []):
+                        text = point.get('text', '') if isinstance(point, dict) else point
+                        if isinstance(text, str): prose += '\n' + text
+            current_names = [minutes_html.shown_name(s, display_names()) for s in state['speakers'] if s['source_id'] == sid]
+            remaining = remaining_old_names(prose, names, current_names)
+            if remaining:
+                stale['remaining_old_names'] = remaining
+            else:
+                state['reader_stale_sources'].pop(sid, None)
+        return commit_analysis(root, state, {'kind': 'analysis_updated', 'actor': 'assistant', 'semantic_review': 'pending'}, analysis)
 
 
 def clips_for(speaker):
@@ -666,7 +750,9 @@ def export(root):
                 else:
                     path = directory / (sid + '-深度洞察.md'); path.write_text(text, encoding='utf-8'); files['insight_md'] = str(path)
         if sid in state.get('reader_stale_sources', {}):
-            files['reader_error'] = '说话人姓名已修改，正文存在无法安全替换的旧称呼；请更新 analysis 后再导出完整纪要。'
+            stale = state['reader_stale_sources'][sid]
+            names = stale.get('remaining_old_names', stale.get('old_names', []))
+            files['reader_error'] = '说话人姓名已修改，正文存在无法安全替换的旧称呼；请更新 analysis 后再导出完整纪要。' + ('还剩：' + '、'.join(names) if names else '旧称呼记录缺失，请先核对正文。')
         output['files'][sid] = files
     write(root / 'exports/latest.json', output)
     return output

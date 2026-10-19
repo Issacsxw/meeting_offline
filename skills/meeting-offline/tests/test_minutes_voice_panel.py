@@ -102,6 +102,71 @@ console.log('speaker panel replacement passed');'''
         self.assertEqual(len(doc['speakers']), 2)
         self.assertIn('说话人 B', doc['participants'])
 
+    def run_rename_js(self, assertions):
+        page = minutes_html.render(self.document())
+        functions = 'function renameSpeakerDocument' + page.split('function renameSpeakerDocument', 1)[1].split('function renderSpeakerPanel', 1)[0]
+        result = subprocess.run(['node', '-e', functions + '\n' + assertions], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which('node'), 'Optional Node runtime not installed')
+    def test_chinese_prose_warning_and_participants_count_suffix(self):
+        self.run_rename_js('''
+const data={speakers:[{key:'s-A',name:'林悦'},{key:'s-B',name:'周宁'}],participants:'周宁、林悦等3人',topic:'林悦：讨论',summary:'林悦认为报价可行。',points:[{title:'林悦',text:'由林悦推动。'}],todos:[{task:'请林悦确认',owner:'林悦',deadline:'等林悦回复'}]};
+const next=renameSpeakerDocument(data,'s-A','张三');
+if(next.participants!=='周宁、张三等3人'||next.topic!=='张三：讨论'||next.points[0].title!=='张三'||next.todos[0].owner!=='张三')throw Error('exact field rename');
+if(next.summary!==data.summary||next.points[0].text!==data.points[0].text||next.todos[0].task!==data.todos[0].task)throw Error('unsafe prose replacement');
+const issues=speakerRenameIssues(next);
+if(issues.length!==4||issues.some(issue=>issue.name!=='林悦')||!issues.some(issue=>issue.where==='会议概要'))throw Error('missing unresolved old-name warning');
+if(data.speakers[0].previous_names)throw Error('mutated rename history');
+for(const [before,after] of [['林悦等2人','张三等2人'],['林悦、周宁等4人','张三、周宁等4人'],['3人','3人'],['林悦','张三']]){
+ const changed=renameSpeakerDocument({...data,participants:before},'s-A','张三');if(changed.participants!==after)throw Error('participant suffix '+before);
+}
+const untouched=renameSpeakerDocument(data,'s-A','林悦');if(speakerRenameIssues(untouched).length)throw Error('confirmation alone creates rename warning');
+''')
+
+    @unittest.skipUnless(shutil.which('node'), 'Optional Node runtime not installed')
+    def test_rename_warning_survives_reload_and_clears_after_manual_correction(self):
+        self.run_rename_js('''
+const data={speakers:[{key:'s-A',name:'林悦'}],participants:'林悦等2人',summary:'林悦认为可行',points:[],todos:[]};
+const renamed=renameSpeakerDocument(data,'s-A','张三');
+const reloaded=JSON.parse(JSON.stringify(renamed));if(speakerRenameIssues(reloaded).length!==1)throw Error('warning lost on save/reload');
+const twice=renameSpeakerDocument(reloaded,'s-A','李四');if(speakerRenameIssues(twice)[0].name!=='林悦')throw Error('first old name lost on repeated rename');
+twice.summary='李四认为可行';if(speakerRenameIssues(twice).length)throw Error('warning did not clear after manual correction');
+twice.summary='林悦认为可行';if(speakerRenameIssues(twice).length!==1)throw Error('warning does not reappear after undo');
+const restored=renameSpeakerDocument(twice,'s-A','林悦');if(speakerRenameIssues(restored).length)throw Error('current name flagged after rename back');
+const extended=renameSpeakerDocument({...data,summary:'林悦：可行。'},'s-A','林悦明');if(speakerRenameIssues(extended).length)throw Error('new name prefix falsely flagged');
+const distinct={...data,speakers:[...data.speakers,{key:'s-B',name:'林悦明'}],summary:'林悦明认为可行'};
+if(speakerRenameIssues(renameSpeakerDocument(distinct,'s-A','张三')).length)throw Error('another known longer name falsely flagged');
+''')
+
+    @unittest.skipUnless(shutil.which('node'), 'Optional Node runtime not installed')
+    def test_actual_save_and_png_handlers_warn_before_export(self):
+        page = minutes_html.render(self.document())
+        handlers = '\n'.join(line for line in page.splitlines() if line.startswith(("$('#save-html').onclick=", "$('#export-png').onclick=")))
+        self.run_rename_js('''
+const nodes=new Map();const node=()=>({hidden:true,disabled:false,textContent:'',children:[],replaceChildren(...items){this.children=items},append(...items){this.children.push(...items)},removeAttribute(){},showModal(){}});
+const $=selector=>{if(!nodes.has(selector))nodes.set(selector,node());return nodes.get(selector)};
+const element=(tag,text)=>({...node(),tag,textContent:text||''});
+let lastStatus='',confirmation=true,prompts=[],cloneCalls=0,pngCalls=0,downloads=0,currentImageObjectURL=null,dirty=true,savedData=null;
+const status=value=>{lastStatus=value};const window={confirm:message=>{prompts.push(message);return confirmation}};
+let data=renameSpeakerDocument({speakers:[{key:'s-A',name:'林悦'}],participants:'林悦等2人',summary:'林悦认为可行',points:[],todos:[]},'s-A','张三');
+const collect=()=>data,speakerEdits={mappings:[{key:'s-A',name:'张三'}]},filename=ext=>'meeting.'+ext;
+const cloneNodes=new Map();const document={documentElement:{cloneNode(){cloneCalls++;return{querySelector:selector=>{if(!cloneNodes.has(selector))cloneNodes.set(selector,node());return cloneNodes.get(selector)},querySelectorAll:()=>[],get outerHTML(){savedData=JSON.parse(cloneNodes.get('#minutes-data').textContent);return '<html></html>'}}}}};
+const URL={createObjectURL:()=> 'blob:test',revokeObjectURL(){}},download=()=>{downloads++},setTimeout=()=>{};
+const makePng=async value=>{pngCalls++;return{downloadUrl:'blob:png',url:'data:png',width:100,height:200}};
+''' + handlers + '''
+(async()=>{
+renderSpeakerRenameWarning(data);const box=$('#speaker-rename-warning');if(box.hidden||!box.children.some(item=>item.textContent==='正文里可能还有旧名字，请核对'))throw Error('visible warning missing');
+confirmation=false;$('#save-html').onclick();await $('#export-png').onclick();
+if(prompts.length!==2||prompts.some(message=>!message.includes('正文里可能还有旧名字')||!message.includes('林悦')))throw Error('export warning missing');
+if(cloneCalls||pngCalls||downloads||$('#export-png').disabled)throw Error('cancel did not prevent export');
+confirmation=true;$('#save-html').onclick();await $('#export-png').onclick();
+if(cloneCalls!==1||pngCalls!==1||downloads!==1||speakerRenameIssues(savedData).length!==1)throw Error('confirmed export/persisted history failed');
+data.summary='张三认为可行';renderSpeakerRenameWarning(data);if(!box.hidden)throw Error('manual correction warning persists');
+const count=prompts.length;$('#save-html').onclick();await $('#export-png').onclick();if(prompts.length!==count)throw Error('corrected document still prompts');
+})().catch(error=>{console.error(error);process.exitCode=1});
+''')
+
 
 if __name__ == '__main__':
     unittest.main()

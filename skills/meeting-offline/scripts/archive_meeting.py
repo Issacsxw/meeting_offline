@@ -161,7 +161,9 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
         publication = w.read(root / 'publication.json')
         if publication['export_version'] != latest['version'] or latest['revision'] != state['revision']:
             raise ValueError('纪要发布版本已过期；先生成并核对当前 HTML 和 PNG。')
-        documents = publication['files'][source_id]
+        documents = publication.get('files', {}).get(source_id)
+        if not documents:
+            raise ValueError('来源 ' + source_id + ' 的当前版本尚未发布；先核对并发布该来源的 HTML 和 PNG。')
         for kind in documents:
             if w.file_digest(documents[kind]['path']) != documents[kind]['sha256']:
                 raise ValueError('发布文件已改变；请先核对 HTML/PNG 并更新 publication.json。')

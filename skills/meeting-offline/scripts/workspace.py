@@ -606,6 +606,9 @@ def publish(root, source_ids=None, png_overrides=None):
             documents = [('html', exported['html']), ('png', png)] + [(k, exported[k]) for k in ('md', 'transcript_md', 'insight_md') if exported.get(k)]
             files[sid] = {kind: {'path': str(Path(value).resolve()), 'sha256': file_digest(value)} for kind, value in documents}
         publication = read(root / 'publication.json') if (root / 'publication.json').exists() else {}
+        if publication.get('export_version') != latest['version']:
+            # An old source must not inherit the new global version when only another source is published.
+            publication['files'] = {}
         publication.update(export_version=latest['version'], revision=state['revision'], published_at=now())
         publication.setdefault('files', {}).update(files)
         write(root / 'publication.json', publication)

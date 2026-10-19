@@ -104,6 +104,23 @@ class FindRecordingsTests(unittest.TestCase):
             self.assertEqual(f.audio_duration.duration(path), 2.5)
         self.assertEqual(probe.call_args.args[0][-1], str(path))
 
+    def test_zero_sample_rate_wav_does_not_hide_normal_recordings(self):
+        folder = self.home / 'Downloads'; folder.mkdir()
+        good = folder / '正常.wav'
+        with wave.open(str(good), 'wb') as output:
+            output.setparams((1, 2, 8000, 0, 'NONE', 'not compressed'))
+            output.writeframes(b'\0\0' * 16000)
+        # A readable PCM header can still have an invalid zero sample rate.
+        header = bytearray(good.read_bytes())
+        struct.pack_into('<I', header, 24, 0)
+        (folder / '零采样率.wav').write_bytes(header)
+        with patch.object(f.audio_duration.sys, 'platform', 'linux'), \
+             patch.object(f.audio_duration.shutil, 'which', return_value=None):
+            recordings = {item['name']: item for item in f.find(home=self.home)['recordings']}
+        self.assertEqual(set(recordings), {'正常.wav', '零采样率.wav'})
+        self.assertEqual(recordings['正常.wav']['duration_seconds'], 2)
+        self.assertIsNone(recordings['零采样率.wav']['duration_seconds'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -17,6 +17,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
+from html.parser import HTMLParser
 import memory
 import minutes_html
 import minutes_md
@@ -114,20 +116,54 @@ def initialize(state_path, root, audio_paths):
                       audio_path=str(audio) if audio else None,
                       audio_sha256=file_digest(audio) if audio else None,
                       title=audio.name if audio else path.name)
+    state['workspace_id'] = uuid.uuid4().hex
     state['schema_version'] = 2
     state['revision'] = 1
     state['created_at'] = now()
     state['pending_role_keys'] = [s['key'] for s in state['speakers'] if not s.get('role_confirmed') and not s.get('ignored_by_user')]
-    state['status'] = 'awaiting_roles' if state['pending_role_keys'] else 'ready_for_minutes'
+    state['status'] = 'awaiting_roles' if requires_role_review(state) and state['pending_role_keys'] else 'ready_for_minutes'
     write(root / 'state.json', state)
     write(root / 'corrections.json', [])
     write(root / 'analysis.json', {'sources': {}})
     write(root / 'manifest.json', {'schema_version': 2, 'revision': 1,
         'status': 'local_transcript_imported', 'created_at': now(),
         'network_calls': 0, 'audio_copied': False})
+    import voiceprint
+    try:
+        state['voiceprint_match'] = voiceprint.match_workspace(root, state=state)
+    except ValueError as error:
+        state['voiceprint_match'] = {'enabled': True, 'error': str(error)}
+    state['status'] = 'awaiting_roles' if requires_role_review(state) and state['pending_role_keys'] else 'ready_for_minutes'
+    write(root / 'state.json', state)
     snapshot(root)
     export(root)
     return root
+
+
+def requires_role_review(state, source_id=None):
+    """Each recording retains explicit review when sandboxed or opt-in matching found nobody."""
+    if device_context.sandbox():
+        return True
+    voice = device_context.minutes_preferences().get('voiceprint', {})
+    if not isinstance(voice, dict) or voice.get('enabled') is not True:
+        return False
+    if source_id is None:
+        return any(requires_role_review(state, source['source_id']) for source in state.get('sources', []))
+    speakers = [speaker for speaker in state.get('speakers', []) if speaker['source_id'] == source_id]
+    matches = state.get('voiceprint_match', {}).get('matches', {})
+    return not any(s.get('role_source') == 'voice_match' or s['key'] in matches for s in speakers)
+
+
+def speaker_label(speaker):
+    if speaker.get('role_confirmed') or speaker.get('role_source') == 'voice_match':
+        return speaker.get('role_name') or speaker.get('display_name') or speaker['key']
+    if speaker.get('diarization_unassigned') or speaker['key'].endswith('-UNASSIGNED'):
+        return '说话人未分离'
+    return '说话人 ' + speaker['key'].rsplit('-', 1)[-1]
+
+
+def workspace_identity(root, state):
+    return state.get('workspace_id') or digest([str(Path(root).resolve()), state['device_id'], state.get('created_at')])
 
 
 def snapshot(root):
@@ -151,13 +187,65 @@ def commit(root, state, change):
     state['updated_at'] = now()
     state.setdefault('changes', []).append({'at': now(), **change})
     state['pending_role_keys'] = [s['key'] for s in state['speakers'] if not s.get('role_confirmed') and not s.get('ignored_by_user')]
-    state['status'] = 'awaiting_roles' if state['pending_role_keys'] else 'ready_for_minutes'
+    state['status'] = 'awaiting_roles' if requires_role_review(state) and state['pending_role_keys'] else 'ready_for_minutes'
     write(root / 'state.json', state)
     manifest = read(root / 'manifest.json')
     manifest.update(revision=state['revision'], status=state['status'], updated_at=now())
     write(root / 'manifest.json', manifest)
     snapshot(root)
     return export(root)
+
+
+
+def commit_analysis(root, state, change, analysis):
+    """Commit analysis and its state under the caller's workspace lock; roll back failed writes."""
+    root = Path(root)
+    paths = [root / name for name in ('analysis.json', 'state.json', 'manifest.json', 'exports/latest.json')]
+    paths.append(root / 'revisions' / f"{state['revision'] + 1:06}.json")
+    backups = {path: path.read_bytes() if path.exists() else None for path in paths}
+    try:
+        write(root / 'analysis.json', analysis)
+        return commit(root, state, change)
+    except Exception:
+        for path, content in backups.items():
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                # Restore exact bytes independently of the failing JSON writer.
+                fd, temporary = tempfile.mkstemp(prefix='.rollback-', dir=str(path.parent))
+                try:
+                    with os.fdopen(fd, 'wb') as handle:
+                        handle.write(content)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(temporary, path)
+                finally:
+                    if os.path.exists(temporary): os.unlink(temporary)
+        raise
+
+
+def remaining_old_names(prose, old_names, current_names):
+    # Match the longest identity token once: protect new extensions, retain old longer names.
+    tokens = sorted({name for name in list(old_names) + list(current_names) if name}, key=len, reverse=True)
+    if not tokens:
+        return []
+    found = re.findall('|'.join(re.escape(name) for name in tokens), prose)
+    return sorted(set(found).intersection(old_names))
+
+
+def analysis_prose(section):
+    """Only authored prose, never source evidence, speaker keys, or attribution metadata."""
+    values = [section.get('title', '')]
+    reader = section.get('reader', {})
+    values.extend(reader.get(field, '') for field in ('summary', 'topic'))
+    for field, texts in (('points', ('title', 'text')), ('todos', ('task', 'deadline'))):
+        for item in reader.get(field, []):
+            values.extend(item.get(key, '') for key in texts)
+    for field, texts in (('decisions', ('text',)), ('actions', ('task', 'deliverable', 'deadline_text')),
+                         ('open_questions', ('text',))):
+        for item in section.get(field, []):
+            values.extend(item.get(key, '') for key in texts)
+    return '\n'.join(value for value in values if isinstance(value, str))
 
 
 def check_revision(state, expected):
@@ -184,6 +272,7 @@ def save_roles(root, mappings, expected, via='page'):
         if not isinstance(mappings, list) or any(not isinstance(m, dict) or not isinstance(m.get('key'), str) for m in mappings) \
                 or len({m['key'] for m in mappings}) != len(mappings):
             raise ValueError('Invalid or duplicate speaker mappings.')
+        old_speakers = deepcopy(speakers)
         resolved = []
         new_profiles = []
         for mapping in mappings:
@@ -214,7 +303,7 @@ def save_roles(root, mappings, expected, via='page'):
                 profile = profiles.get(profile_id) or {
                     'id': profile_id, 'entity_type': entity_type, 'name': name,
                     'scope': scope, 'role_title': role, 'aliases': [],
-                    'confirmation': ('用户在本地说话人复核页明确填写并保存：' if via == 'page' else '用户在对话中明确确认：') + mapping['key']}
+                    'confirmation': ({'page': '用户在本地说话人复核页明确填写并保存：', 'html': '用户在纪要网页中修改并确认：'}.get(via, '用户在对话中明确确认：')) + mapping['key']}
                 new_profiles.append(profile)
             resolved.append((mapping['key'], profile))
         for key, profile in resolved:
@@ -225,8 +314,12 @@ def save_roles(root, mappings, expected, via='page'):
                 speaker.update(role_name=profile['name'] + ('｜' + profile['role_title'] if profile.get('role_title') else ''),
                                display_name=profile['name'], identity_group=profile['id'], accepted_unknown=False)
             speaker['role_confirmed'] = True
+            speaker['role_source'] = 'user'
+        updated_analysis = None
+        if via == 'html':
+            updated_analysis = sync_reader_names(root, state, old_speakers, [key for key, profile in resolved if profile is not None])
         try:
-            validate_analysis(root, read(root / 'analysis.json'), state=state)
+            validate_analysis(root, updated_analysis if updated_analysis is not None else read(root / 'analysis.json'), state=state)
         except ValueError as error:
             raise ValueError('角色更新与现有纪要归属冲突，尚未保存。请先修改相关负责人或提出者归属后重试：' + str(error)) from error
         for profile in new_profiles:
@@ -236,8 +329,75 @@ def save_roles(root, mappings, expected, via='page'):
                     'id': 'name-' + digest([profile['scope'], profile['name']])[:16],
                     'canonical': profile['name'], 'scope': profile['scope'], 'aliases': [],
                     'definition': profile.get('role_title', ''),
-                    'confirmation': '用户在本地角色复核页明确选择具体人物并填写姓名。' if via == 'page' else '用户在对话中明确确认具体人物的姓名。'})
-        return commit(root, state, {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'})
+                    'confirmation': {'page': '用户在本地角色复核页明确选择具体人物并填写姓名。', 'html': '用户在纪要网页中修改并确认'}.get(via, '用户在对话中明确确认具体人物的姓名。')})
+        import voiceprint
+        try:
+            voiceprint.enroll_confirmed(root, state, [key for key, profile in resolved if profile is not None])
+        except (ValueError, RuntimeError, OSError, ImportError) as error:
+            state['voiceprint_enrollment_warning'] = str(error)
+        change = {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'}
+        if updated_analysis is not None:
+            return commit_analysis(root, state, change, updated_analysis)
+        return commit(root, state, change)
+
+
+def sync_reader_names(root, state, old_speakers, keys):
+    """Apply the same conservative single-pass rename as HTML; withhold unsafe stale prose."""
+    analysis = read(Path(root) / 'analysis.json')
+    speakers = {s['key']: s for s in state['speakers']}
+    for sid in {speakers[k]['source_id'] for k in keys}:
+        mappings = {}
+        aliases = []
+        old_names = [minutes_html.shown_name(old, display_names()) for old in old_speakers.values() if old['source_id'] == sid]
+        ambiguous = {name for name in old_names if old_names.count(name) > 1}
+        for key, old in old_speakers.items():
+            if old['source_id'] != sid:
+                continue
+            old_name = minutes_html.shown_name(old, display_names())
+            aliases.extend([key, old_name])
+            if key in keys:
+                new_name = minutes_html.shown_name(speakers[key], display_names())
+                mappings.update({a: new_name for a in (key, old_name) if a != new_name and a not in ambiguous})
+        section = analysis.get('sources', {}).get(sid, {})
+        old_tokens = set(state.get('reader_stale_sources', {}).get(sid, {}).get('old_names', []))
+        current_names = [minutes_html.shown_name(s, display_names()) for s in speakers.values() if s['source_id'] == sid]
+        for key in keys:
+            if old_speakers[key]['source_id'] == sid:
+                before = minutes_html.shown_name(old_speakers[key], display_names())
+                after = minutes_html.shown_name(speakers[key], display_names())
+                if before != after: old_tokens.update((key, before))
+        remaining = set()
+        def replace(value):
+            result = minutes_html.replace_speaker_names(value, mappings, aliases)
+            # No guessing when a name sits inside ambiguous text or is a single character.
+            remaining.update(remaining_old_names(result, old_tokens, current_names))
+            return result
+        if isinstance(section.get('title'), str): section['title'] = replace(section['title'])
+        for speaker in state['speakers']:
+            if speaker['source_id'] != sid:
+                continue
+            for index, point in enumerate(speaker.get('core_points', [])):
+                if isinstance(point, dict) and isinstance(point.get('text'), str):
+                    point['text'] = replace(point['text'])
+                elif isinstance(point, str):
+                    speaker['core_points'][index] = replace(point)
+        reader = section.get('reader', {})
+        for field in ('summary', 'topic'):
+            if isinstance(reader.get(field), str): reader[field] = replace(reader[field])
+        for field, texts in (('points', ('title', 'text')), ('todos', ('task', 'deadline'))):
+            for item in reader.get(field, []):
+                for name in texts:
+                    if isinstance(item.get(name), str): item[name] = replace(item[name])
+        for field, text_fields in (('decisions', ('text',)), ('actions', ('task', 'deliverable', 'deadline_text')), ('open_questions', ('text',))):
+            for item in section.get(field, []):
+                for text_field in text_fields:
+                    if isinstance(item.get(text_field), str): item[text_field] = replace(item[text_field])
+        remaining.update(remaining_old_names(analysis_prose(section), old_tokens, current_names))
+        if remaining or sid in state.get('reader_stale_sources', {}):
+            state.setdefault('reader_stale_sources', {})[sid] = {
+                'reason': 'speaker_rename_requires_prose_review', 'old_names': sorted(old_tokens),
+                'remaining_old_names': sorted(remaining)}
+    return analysis
 
 
 def add_term(root, payload, expected):
@@ -322,7 +482,7 @@ def validate_analysis(root, analysis, state=None):
                 for key in ('proposer', 'owner'):
                     if item.get(key) and (item[key] not in speakers or speakers[item[key]]['source_id'] != source_id):
                         raise ValueError(f'{where}.{key}: speaker attribution must reference this source.')
-                    if item.get(key) and speakers[item[key]].get('diarization_unassigned') and not speakers[item[key]].get('identity_group'):
+                    if item.get(key) and (speakers[item[key]].get('diarization_unassigned') or item[key].endswith('-UNASSIGNED')) and not speakers[item[key]].get('identity_group'):
                         raise ValueError(f'{where}.{key}: 来自“说话人未分离”的片段，不能当作某个人的发言或认领。')
                 if field == 'decisions' and item.get('status') not in ('direction', 'proposal', 'decided', 'open'):
                     raise ValueError(f'{where}.status must be direction, proposal, decided, or open.')
@@ -366,8 +526,29 @@ def set_analysis(root, analysis, expected):
     root = Path(root)
     with locked(root):
         state = read(root / 'state.json'); check_revision(state, expected)
-        validate_analysis(root, analysis); write(root / 'analysis.json', analysis)
-        return commit(root, state, {'kind': 'analysis_updated', 'actor': 'assistant', 'semantic_review': 'pending'})
+        validate_analysis(root, analysis)
+        for sid, section in analysis['sources'].items():
+            stale = state.setdefault('reader_stale_sources', {}).get(sid)
+            if stale is None:
+                continue
+            names = stale.get('old_names')
+            # Legacy markers lacking names cannot silently authorize old prose.
+            if not names:
+                continue
+            prose = analysis_prose(section)
+            # Text minutes always include these cards; HTML also uses them as a fallback.
+            for speaker in state['speakers']:
+                if speaker['source_id'] == sid:
+                    for point in speaker.get('core_points', []):
+                        text = point.get('text', '') if isinstance(point, dict) else point
+                        if isinstance(text, str): prose += '\n' + text
+            current_names = [minutes_html.shown_name(s, display_names()) for s in state['speakers'] if s['source_id'] == sid]
+            remaining = remaining_old_names(prose, names, current_names)
+            if remaining:
+                stale['remaining_old_names'] = remaining
+            else:
+                state['reader_stale_sources'].pop(sid, None)
+        return commit_analysis(root, state, {'kind': 'analysis_updated', 'actor': 'assistant', 'semantic_review': 'pending'}, analysis)
 
 
 def clips_for(speaker):
@@ -404,9 +585,9 @@ def public_state(root):
     root = Path(root); state = read(root / 'state.json')
     assert_workspace(root, state)
     mem = memory.read_store(memory_path(state))
-    return {'revision': state['revision'], 'status': state['status'],
+    return {'revision': state['revision'], 'status': state['status'], 'identity_confirmation_required': requires_role_review(state),
         'sources': [{'source_id': s['source_id'], 'title': s['title'], 'has_audio': bool(s.get('audio_path'))} for s in state['sources']],
-        'speakers': [{k: s.get(k) for k in ('key', 'source_id', 'role_name', 'role_confirmed', 'identity_group', 'focus', 'core_points', 'recognition_quotes', 'candidate_role', 'diarization_unassigned')} | {'clips': clips_for(s)} for s in state['speakers']],
+        'speakers': [{k: s.get(k) for k in ('key', 'source_id', 'role_name', 'role_confirmed', 'identity_group', 'focus', 'core_points', 'recognition_quotes', 'candidate_role', 'diarization_unassigned', 'role_source', 'voice_similarity', 'voice_profile_id')} | {'clips': clips_for(s)} for s in state['speakers']],
         'roles': [p for p in mem['roles'] if p.get('active', True)],
         'terms': [t for t in mem['terms'] if t.get('active', True)],
         'corrections': read(root / 'corrections.json'),
@@ -458,7 +639,7 @@ def export(root):
     protected = sorted(protected_forms(state, corrections))
     shown_names = display_names(); theme = preferred_theme(); layout = preferred_layout(); links = vault_links(state)
     private = read(root / 'insights.json') if (root / 'insights.json').exists() else {'sources': {}}
-    signature = digest({'theme': theme, 'layout': layout, 'insights': private,
+    signature = digest({'audit_issues': unresolved_audit(root), 'revision': state['revision'], 'theme': theme, 'layout': layout, 'insights': private,
                         'insights_renderer': file_digest(Path(__file__).with_name('insights.py')), 'speakers': state['speakers'], 'analysis': analysis, 'corrections': corrections, 'protected': protected,
                         'display_names': shown_names, 'vault_links': links,
                         'html_template': file_digest(minutes_html.TEMPLATE), 'html_renderer': file_digest(minutes_html.__file__),
@@ -472,8 +653,8 @@ def export(root):
         sid = source['source_id']; transcript = read(source['path'])
         if file_digest(source['path']) != source['transcript_sha256']:
             raise ValueError('Immutable raw transcript changed; refusing to export.')
-        names = {(type(s['source_speaker_id']).__name__, s['source_speaker_id']): s.get('role_name') or s['key'] for s in state['speakers'] if s['source_id'] == sid}
-        lines = [source['title'] + '｜带角色转写', '角色由用户确认；原始转写单独保留。', '']
+        names = {(type(s['source_speaker_id']).__name__, s['source_speaker_id']): speaker_label(s) for s in state['speakers'] if s['source_id'] == sid}
+        lines = [source['title'] + '｜带角色转写', '自动识别身份待用户确认；原始转写单独保留。', '']
         subtitles = []; normalized = []
         for i, segment in enumerate(transcript['segments']):
             speaker_id = segment.get('speaker_id')
@@ -484,7 +665,7 @@ def export(root):
             normalized.append({**segment, 'speaker_name': name, 'text': text, 'original_text': segment['text'], 'segment_id': sid + ':' + str(i)})
         structured = deepcopy(analysis['sources'].get(sid, {}))
         def name(key):
-            return speakers[key]['role_name'] if key else '待明确'
+            return speaker_label(speakers[key]) if key else '待明确'
         def evidence(refs):
             return [{'segment_id': sid + ':' + str(i), **transcript['segments'][i]} for i in refs]
         for field in ('decisions', 'actions', 'open_questions'):
@@ -498,12 +679,13 @@ def export(root):
                 claim['source_evidence'] = evidence(claim['evidence'])
                 if claim.get('owner'): claim['owner_name'] = name(claim['owner'])
                 if claim.get('proposer'): claim['proposer_name'] = name(claim['proposer'])
-        ready = all(s.get('role_confirmed') or s.get('ignored_by_user') for s in state['speakers'] if s['source_id'] == sid)
+        confirmed = all(s.get('role_confirmed') or s.get('ignored_by_user') for s in state['speakers'] if s['source_id'] == sid)
+        ready = (confirmed or not requires_role_review(state, sid)) and sid not in state.get('reader_stale_sources', {})
         minutes = [structured.get('title') or source['title'], '', '会议日期：' + str(structured.get('meeting_date') or '待确认'),
-                   '状态：角色已确认；纪要由 AI 整理，结论仍可复核。' if ready else '状态：角色待确认，仅显示观点卡片。', '', '各角色核心观点']
+                   '状态：纪要由 AI 整理；自动识别姓名待确认，未识别者使用代号。' if ready else '状态：角色待确认，仅显示观点卡片。', '', '各角色核心观点']
         for speaker in state['speakers']:
             if speaker['source_id'] == sid and not speaker.get('ignored_by_user'):
-                minutes.append('\n' + (speaker.get('role_name') or speaker['key']))
+                minutes.append('\n' + speaker_label(speaker))
                 for point in speaker.get('core_points', []):
                     text = point.get('text', '') if isinstance(point, dict) else point
                     # Scoped user-approved term rules can normalize derived prose; raw evidence stays intact.
@@ -530,11 +712,13 @@ def export(root):
             path = directory / (sid + '-' + suffix)
             path.write_text(text, encoding='utf-8'); files[kind] = str(path)
         path = directory / (sid + '-structured.json')
-        write(path, {'source_id': sid, 'roles_confirmed': ready, 'transcript': normalized, 'analysis': structured,
+        write(path, {'source_id': sid, 'roles_confirmed': confirmed, 'transcript': normalized, 'analysis': structured,
                      'semantic_review': 'pending', 'version': signature})
         files['structured'] = str(path)
         if ready and structured:
             document = minutes_html.from_workspace(state, sid, structured, corrections, protected, shown_names, theme, layout)
+            document.update(workspace_id=workspace_identity(root, state), revision=state['revision'], source_id=sid)
+            document['audit_issues'] = [p for p in unresolved_audit(root) if p['source_id'] == sid]
             path = directory / (sid + '-纪要.html')
             rendered = minutes_html.render(document)
             unchanged = path.exists() and path.read_text(encoding='utf-8') == rendered
@@ -556,7 +740,7 @@ def export(root):
             for kind, suffix, text in (
                     ('md', '会议纪要.md', minutes_md.minutes(document, meeting_date=meeting_date, links=links, audio=audio)),
                     ('transcript_md', '逐字稿.md', minutes_md.transcript(document['topic'], spoken, meeting_date=meeting_date,
-                                                                         people=document['people'], links=links))):
+                                                                         people=document['people'], links=links, all_confirmed=confirmed))):
                 path = directory / (sid + '-' + suffix)
                 path.write_text(text, encoding='utf-8'); files[kind] = str(path)
             if sid in private['sources']:
@@ -570,9 +754,99 @@ def export(root):
                     files['insight_error'] = str(error)
                 else:
                     path = directory / (sid + '-深度洞察.md'); path.write_text(text, encoding='utf-8'); files['insight_md'] = str(path)
+        if sid in state.get('reader_stale_sources', {}):
+            stale = state['reader_stale_sources'][sid]
+            names = stale.get('remaining_old_names', stale.get('old_names', []))
+            files['reader_error'] = '说话人姓名已修改，正文存在无法安全替换的旧称呼；请更新 analysis 后再导出完整纪要。' + ('还剩：' + '、'.join(names) if names else '旧称呼记录缺失，请先核对正文。')
         output['files'][sid] = files
     write(root / 'exports/latest.json', output)
     return output
+
+
+def unresolved_audit(root):
+    import audit
+    saved = read(Path(root) / 'semantic_review.json') if (Path(root) / 'semantic_review.json').exists() else {}
+    settled = saved.get('resolutions', {})
+    return [p for p in audit.audit(root) if not audit.resolution_valid(p, settled.get(p['id'], {}))]
+
+
+class SpeakerEditsParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.capture = False
+        self.blocks = []
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'script' and attrs.get('id') == 'meeting-speaker-edits':
+            if attrs.get('type') != 'application/json':
+                raise ValueError('说话人修改数据格式不正确。')
+            self.blocks.append(''); self.capture = True
+    def handle_data(self, value):
+        if self.capture:
+            self.blocks[-1] += value
+    def handle_endtag(self, tag):
+        if tag == 'script': self.capture = False
+
+
+def import_html(root, html_path, expected):
+    """Import only explicit speaker edits. Never execute HTML or import meeting analysis/state."""
+    root = Path(root)
+    state = read(root / 'state.json'); assert_workspace(root, state); check_revision(state, expected)
+    path = Path(html_path)
+    if path.stat().st_size > 10 * 1024 * 1024:
+        raise ValueError('HTML 文件过大。')
+    parser = SpeakerEditsParser(); parser.feed(path.read_text(encoding='utf-8'))
+    if len(parser.blocks) != 1:
+        raise ValueError('需要唯一的说话人修改数据。')
+    data = json.loads(parser.blocks[0])
+    if not isinstance(data, dict) or set(data) != {'schema_version', 'workspace_id', 'revision', 'source_id', 'mappings'}:
+        raise ValueError('只允许导入说话人映射。')
+    if data['schema_version'] != 1 or data['workspace_id'] != workspace_identity(root, state):
+        raise ValueError('HTML 不属于此工作区。')
+    check_revision(state, data['revision'])
+    if data['source_id'] not in {s['source_id'] for s in state['sources']}:
+        raise ValueError('HTML 来源不存在。')
+    latest = read(root / 'exports/latest.json')
+    if latest['revision'] != state['revision'] or not latest['files'].get(data['source_id'], {}).get('html'):
+        raise ValueError('此来源没有当前版本可导入的纪要网页。')
+    speakers = {s['key']: s for s in state['speakers'] if s['source_id'] == data['source_id'] and not s.get('ignored_by_user')}
+    mappings = data['mappings']
+    if not isinstance(mappings, list) or len(mappings) > len(speakers):
+        raise ValueError('无效的说话人映射。')
+    if any(not isinstance(item, dict) or set(item) != {'key', 'name'} for item in mappings):
+        raise ValueError('只允许说话人 key 和 name。')
+    clean = []; seen = set(); planned_names = {}
+    aliases = {a for speaker in speakers.values() for a in (speaker['key'], '说话人 ' + speaker['key'].rsplit('-', 1)[-1])}
+    for item in mappings:
+        if not isinstance(item, dict) or set(item) != {'key', 'name'}:
+            raise ValueError('只允许说话人 key 和 name。')
+        key, name = item['key'], item['name']
+        if not isinstance(key, str) or key not in speakers or key in seen:
+            raise ValueError('说话人不属于此来源或重复。')
+        seen.add(key)
+        if speakers[key].get('diarization_unassigned') or key.endswith('-UNASSIGNED'):
+            raise ValueError('未分离发言不能通过纪要网页认领。')
+        if not isinstance(name, str) or not name.strip() or len(name) > 100 or any(ord(c) < 32 for c in name):
+            raise ValueError('无效姓名。')
+        name = name.strip()
+        if not (speakers[key].get('identity_group') or speakers[key].get('voice_profile_id')) and name == minutes_html.shown_name(speakers[key], display_names()):
+            continue
+        if not minutes_html.valid_speaker_name(name, aliases):
+            raise ValueError('请填写真实姓名或明确角色，不能使用未知标签或说话人代号。')
+        planned_names[key] = name
+        row = {'key': key, 'name': name.strip(), 'entity_type': 'person'}
+        candidate = speakers[key].get('identity_group') or speakers[key].get('voice_profile_id')
+        profiles = memory.read_store(memory_path(state))['roles']
+        profile = next((p for p in profiles if p['id'] == candidate and p.get('active', True) and (p['name'] == name.strip() or minutes_html.shown_name(speakers[key], display_names()) == name.strip())), None)
+        if profile: row = {'key': key, 'profile_id': profile['id']}
+        clean.append(row)
+    final_names = {key: planned_names.get(key, minutes_html.shown_name(speaker, display_names())) for key, speaker in speakers.items()}
+    for key, name in planned_names.items():
+        if any(other != key and value == name for other, value in final_names.items()):
+            raise ValueError('同一来源的两个说话人不能使用同一个名字。')
+    if not clean:
+        return {'revision': state['revision'], 'imported': 0}
+    return save_roles(root, clean, expected, via='html')
 
 
 def publish(root, source_ids=None, png_overrides=None):
@@ -641,6 +915,7 @@ def main():
     c = sub.add_parser('candidates'); c.add_argument('--workspace', required=True); c.add_argument('--file', required=True); c.add_argument('--revision', required=True, type=int)
     ct = sub.add_parser('confirm-terms', help='一次应用用户在对话里确认的术语修正'); ct.add_argument('--workspace', required=True); ct.add_argument('--file', required=True); ct.add_argument('--revision', required=True, type=int)
     r = sub.add_parser('roles', help='应用用户在对话里给出的说话人映射'); r.add_argument('--workspace', required=True); r.add_argument('--file', required=True); r.add_argument('--revision', required=True, type=int)
+    ih = sub.add_parser('import-html'); ih.add_argument('--workspace', required=True); ih.add_argument('--html', required=True); ih.add_argument('--revision', type=int, required=True)
     pub = sub.add_parser('publish'); pub.add_argument('--workspace', required=True); pub.add_argument('--source', action='append'); pub.add_argument('--png', action='append', help='SID=PATH，浏览器内手动导出的 PNG')
     au = sub.add_parser('audit', help='核对纪要内容和引用原话是否一致'); au.add_argument('--workspace', required=True)
     au.add_argument('--resolve', help='登记处理结果的 JSON：{问题 id: {resolution, note}}'); au.add_argument('--revision', type=int)
@@ -657,6 +932,7 @@ def main():
             import term_review
             result = term_review.confirm_batch(args.workspace, read(args.file), args.revision)
         elif args.command == 'roles': result = save_roles(args.workspace, read(args.file), args.revision, via='chat')
+        elif args.command == 'import-html': result = import_html(args.workspace, args.html, args.revision)
         elif args.command == 'publish': result = publish(args.workspace, args.source, {k: str(v) for k, v in pairs(args.png).items()})
         elif args.command == 'hotwords': result = hotwords(args.workspace, args.term, args.out, args.weight)
         elif args.command == 'audit':

@@ -151,5 +151,128 @@ class AuditFlowTests(unittest.TestCase):
         self.assertIn('m', w.publish(self.root)['files'])
 
 
+    def test_pending_voice_name_cannot_be_attributed_to_another_speaker(self):
+        state = w.read(self.root / 'state.json')
+        state['speakers'][1].update(role_confirmed=False, identity_group=None, role_source='voice_match')
+        w.write(self.root / 'state.json', state)
+        analysis = {'sources': {'m': {'reader': {'points': [{'title': '分工', 'text': '陈思远负责渠道',
+                    'evidence': [0], 'attribution': ['m-A'], 'status': 'open'}]}}}}
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertIn('name', [p['kind'] for p in audit.audit(self.root)])
+        analysis['sources']['m']['reader']['points'][0]['attribution'] = ['m-B']
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertNotIn('name', [p['kind'] for p in audit.audit(self.root)])
+
+    def set_claim(self, claim, said, status='open', deadline=False):
+        transcript_path = self.base / 'm.json'
+        transcript = w.read(transcript_path)
+        transcript['segments'][0]['text'] = said
+        w.write(transcript_path, transcript)
+        self.claim_number = getattr(self, 'claim_number', 0) + 1
+        self.root = w.initialize(self.base / 's.json', self.base / 'meetings' / f'claim-{self.claim_number}',
+                                 {'m': self.base / 'm.m4a'})
+        section = {'meeting_date': '2026-10-12', 'reader': {'points': [
+            {'title': '议题', 'text': claim, 'evidence': [0], 'status': status}]}}
+        if deadline:
+            section['reader']['points'] = []
+            section['actions'] = [{'task': '完成测算', 'owner': 'm-A', 'owner_basis': 'self_commitment',
+                                   'deadline_text': claim, 'evidence': [0]}]
+        w.set_analysis(self.root, {'sources': {'m': section}}, self.revision())
+        return audit.report(self.root)['issues']
+
+    def test_supported_fact_explanation_passes_real_detector_and_publish(self):
+        cases = [
+            ('年度预算12万元。', '每月预算一万元。', '每月1万元，全年12个月合计12万元。'),
+            ('10月16日完成。', '周五前完成。', '会议日期为2026年10月12日，该周周五是10月16日。'),
+            ('15:30开会。', '下午三点过半小时开会。', '下午三点加半小时为15:30。'),
+            ('增长50%。', '从100增加到150。', '增加50，相对原来的100增长50%。'),
+        ]
+        for claim, said, note in cases:
+            with self.subTest(claim=claim):
+                issues = self.set_claim(claim, said)
+                self.assertEqual([p['kind'] for p in issues], ['fact'])
+                self.assertFalse(audit.is_checked(self.root))
+                with self.assertRaisesRegex(ValueError, '依据'):
+                    audit.resolve(self.root, {issues[0]['id']: {'resolution': 'supported', 'note': '  '}}, self.revision())
+                result = audit.resolve(self.root, {issues[0]['id']: {'resolution': 'supported', 'note': note}}, self.revision())
+                self.assertEqual(result['status'], 'checked')
+                self.assertTrue(audit.is_checked(self.root))
+                self.assertEqual(audit.report(self.root)['unresolved'], 0)
+                w.publish(self.root)
+
+    def test_supported_deadline_fact_passes_but_deadline_negation_does_not(self):
+        issues = self.set_claim('10月16日前', '周五前完成测算。', deadline=True)
+        self.assertEqual([p['kind'] for p in issues], ['deadline'])
+        result = audit.resolve(self.root, {issues[0]['id']: {'resolution': 'supported',
+                               'note': '本次会议当周的周五是10月16日。'}}, self.revision())
+        self.assertEqual(result['status'], 'checked')
+        w.publish(self.root)
+        issues = self.set_claim('允许延期', '不允许延期。', deadline=True)
+        self.assertEqual([p['kind'] for p in issues], ['negation'])
+        self.assertEqual(issues[0]['where'], 'actions[0].deadline')
+        with self.assertRaisesRegex(ValueError, 'user_confirmed'):
+            audit.resolve(self.root, {issues[0]['id']: {'resolution': 'supported', 'note': 'AI认为可以延期'}}, self.revision())
+
+    def test_legacy_fact_supported_remains_checked_with_explanation(self):
+        issues = self.set_claim('年度预算12万元。', '每月预算一万元。')
+        self.assertEqual([p['kind'] for p in issues], ['fact'])
+        latest = w.read(self.root / 'exports/latest.json')
+        w.write(self.root / 'semantic_review.json', {'version': latest['version'], 'resolutions': {
+            issues[0]['id']: {'resolution': 'supported', 'note': '每月1万元，全年合计12万元。'}}})
+        self.assertTrue(audit.is_checked(self.root))
+        self.assertEqual(audit.report(self.root)['unresolved'], 0)
+        self.assertEqual(audit.resolve(self.root, {}, self.revision())['status'], 'checked')
+        self.assertTrue(audit.is_checked(self.root))
+        w.publish(self.root)
+
+    def test_semantic_supported_is_rejected_and_legacy_resolution_needs_user_confirmation(self):
+        cases = [('name', '陈思远负责渠道。', '讨论渠道方案。', 'open'),
+                 ('negation', '本月打折。', '本月不打折。', 'open'),
+                 ('status', '方案通过。', '再考虑一下方案。', 'decided')]
+        for kind, claim, said, status in cases:
+            with self.subTest(kind=kind):
+                issues = self.set_claim(claim, said, status)
+                self.assertEqual([p['kind'] for p in issues], [kind])
+                key = issues[0]['id']
+                legacy = {key: {'resolution': 'supported', 'note': '原来的助手认为原话足以支持。'}}
+                with self.assertRaisesRegex(ValueError, 'user_confirmed'):
+                    audit.resolve(self.root, legacy, self.revision())
+                latest = w.read(self.root / 'exports/latest.json')
+                w.write(self.root / 'semantic_review.json', {'version': latest['version'], 'resolutions': legacy})
+                self.assertFalse(audit.is_checked(self.root))
+                self.assertFalse(audit.report(self.root)['checked'])
+                self.assertEqual(audit.report(self.root)['unresolved'], 1)
+                with self.assertRaisesRegex(ValueError, '还没核对完'):
+                    w.publish(self.root)
+                result = audit.resolve(self.root, {}, self.revision())
+                self.assertEqual(result['status'], 'pending')
+                self.assertNotIn(key, result['resolutions'])
+                confirmed = {key: {'resolution': 'user_confirmed', 'note': '用户明确确认此处采用纪要表述。'}}
+                self.assertEqual(audit.resolve(self.root, confirmed, self.revision())['status'], 'checked')
+                self.assertTrue(audit.is_checked(self.root))
+                w.publish(self.root)
+
+
+class ResolutionTypeTests(unittest.TestCase):
+    def test_supported_checks_only_issue_type_and_nonempty_explanation(self):
+        for kind in ('fact', 'deadline'):
+            with self.subTest(kind=kind):
+                self.assertTrue(audit.resolution_valid({'kind': kind},
+                    {'resolution': 'supported', 'note': '原话有依据，已说明换算关系。'}))
+                for note in ('', '  ', None, 0, [], {}):
+                    self.assertFalse(audit.resolution_valid({'kind': kind},
+                        {'resolution': 'supported', 'note': note}))
+                self.assertFalse(audit.resolution_valid({'kind': kind}, {'resolution': 'supported'}))
+
+    def test_semantic_types_require_user_confirmation(self):
+        for kind in ('name', 'negation', 'status', 'other'):
+            with self.subTest(kind=kind):
+                self.assertFalse(audit.resolution_valid({'kind': kind},
+                    {'resolution': 'supported', 'note': 'AI认为没问题'}))
+                self.assertTrue(audit.resolution_valid({'kind': kind}, {'resolution': 'user_confirmed'}))
+        for resolution in (None, 'supported', {}, {'resolution': 'fixed'}):
+            self.assertFalse(audit.resolution_valid({'kind': 'fact'}, resolution))
+
+
 if __name__ == '__main__':
     unittest.main()

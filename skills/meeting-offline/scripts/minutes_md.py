@@ -22,9 +22,9 @@ def yaml(value):
 
 def link(person, links):
     """[[note|shown]] when the vault has a note for this confirmed name, plain text otherwise."""
-    note = links.get(person['name'])
+    note = links.get(person['name']) if person.get('role_confirmed', True) else None
     if not note:
-        return escape(person['shown'])
+        return escape(person['shown'] + ('（待确认）' if not person.get('role_confirmed', True) else ''))
     return f'[[{note}]]' if note == person['shown'] else f'[[{note}|{person["shown"]}]]'
 
 
@@ -58,7 +58,7 @@ def minutes(document, *, meeting_date=None, links=None, audio=None):
     people = document.get('people') or []
     topic = one_line(document['topic'])
     named = [link(p, links) for p in people]
-    lines = front([('title', topic), ('date', meeting_date), ('participants', [link(p, links) if links.get(p['name']) else p['shown'] for p in people]),
+    lines = front([('title', topic), ('date', meeting_date), ('participants', [link(p, links) for p in people]),
                    ('tags', ['会议纪要']), ('aliases', [f'{meeting_date} {topic}' if meeting_date else topic]),
                    ('created_by', 'meeting-offline')])
     lines += ['# ' + escape(topic), '']
@@ -95,15 +95,16 @@ def minutes(document, *, meeting_date=None, links=None, audio=None):
     return '\n'.join(lines) + '\n'
 
 
-def transcript(topic, segments, *, meeting_date=None, people=(), links=None):
+def transcript(topic, segments, *, meeting_date=None, people=(), links=None, all_confirmed=False):
     """segments: [{speaker, start_ms, text}] in order; consecutive turns by one speaker become a paragraph."""
     links = links or {}
     topic = one_line(topic)
     lines = front([('title', f'{topic} 逐字稿'), ('date', meeting_date),
-                   ('participants', [link(p, links) if links.get(p['name']) else p['shown'] for p in people]),
+                   ('participants', [link(p, links) for p in people]),
                    ('tags', ['逐字稿']), ('created_by', 'meeting-offline')])
+    identity_notice = '说话人由用户确认' if all_confirmed else '自动识别姓名待用户确认，未识别者使用代号'
     lines += [f'# {escape(topic)} · 逐字稿', '',
-              f'> 说话人由用户确认，专有名词按已确认的写法修正。[返回纪要]({target(MINUTES)})', '']
+              f'> {identity_notice}，专有名词按已确认的写法修正。[返回纪要]({target(MINUTES)})', '']
     current = None
     for segment in segments:
         text = segment['text'].strip()

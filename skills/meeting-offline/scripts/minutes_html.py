@@ -2,6 +2,7 @@
 import argparse
 import html
 import json
+import re
 from pathlib import Path
 import terms
 
@@ -38,8 +39,13 @@ def render(document):
                 raise ValueError('要点状态只能是 ' + '、'.join(STATUS))
     # people carries confirmed names for the Markdown links; the shared page only shows display names.
     document = {k: v for k, v in document.items() if k != 'people'}
+    if 'speakers' in document:
+        document['speakers'] = [{k: v for k, v in row.items() if k != 'voice_similarity'} for row in document['speakers']]
     payload = json.dumps(document, ensure_ascii=False).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
-    source = TEMPLATE.read_text(encoding='utf-8').replace('__MEETING_DATA__', payload)
+    edits = {'schema_version': 1, 'workspace_id': document.get('workspace_id'),
+             'revision': document.get('revision'), 'source_id': document.get('source_id'), 'mappings': []}
+    edits_payload = json.dumps(edits, ensure_ascii=False).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
+    source = TEMPLATE.read_text(encoding='utf-8').replace('__MEETING_DATA__', payload).replace('__SPEAKER_EDITS__', edits_payload)
     return source.replace('<title>会议纪要</title>', '<title>' + html.escape(document['topic']) + '</title>')
 
 
@@ -53,14 +59,50 @@ def png_for(html_path, out=None):
         return {'png': None, 'png_error': str(error)}
 
 
+def valid_speaker_name(name, aliases=()):
+    """Reject placeholder labels and source speaker keys, not real names."""
+    return (isinstance(name, str) and bool(name.strip()) and len(name.strip()) <= 100
+            and not any(ord(char) < 32 for char in name)
+            and name.strip() not in set(aliases)
+            and not name.strip().startswith('身份未确认')
+            and not re.match(r'^说话人\s*\S+', name.strip()))
+
+
+def replace_speaker_names(text, mappings, aliases=()):
+    """Conservative single-pass prose rename; explicit owner/name fields use exact mapping.
+
+    Personal names require at least two characters and Unicode word boundaries.
+    Machine keys and speaker labels use ASCII boundaries. Known longer aliases
+    protect prefix names even when the longer alias itself is not being renamed.
+    """
+    tokens = sorted(set(aliases) | set(mappings), key=lambda item: (-len(item), item))
+    tokens = [item for item in tokens if isinstance(item, str) and item]
+    def word(char):
+        return char.isalnum() or char == '_'
+    result = []; index = 0
+    while index < len(text):
+        token = next((item for item in tokens if text.startswith(item, index)), None)
+        if token:
+            code = bool(re.fullmatch(r'[^\s]+-[A-Z]+', token) or re.fullmatch(r'说话人\s+\S+', token))
+            boundary = (lambda char: char.isascii() and word(char)) if code else word
+            before = text[index - 1] if index else ''
+            after = text[index + len(token)] if index + len(token) < len(text) else ''
+            safe = (code or len(token) >= 2) and not (before and boundary(before)) and not (after and boundary(after))
+            result.append(mappings.get(token, token) if safe else token)
+            index += len(token)
+        else:
+            result.append(text[index]); index += 1
+    return ''.join(result)
+
+
 def shown_name(speaker, display_names=None):
     """How a speaker reads in the minutes: the confirmed name through the device's display_names, else the label."""
-    if speaker.get('diarization_unassigned') and not speaker.get('identity_group'):
+    if (speaker.get('diarization_unassigned') or speaker['key'].endswith('-UNASSIGNED')) and not speaker.get('identity_group'):
         return '说话人未分离'
     if speaker.get('accepted_unknown') or speaker.get('role_name') == UNKNOWN_ROLE:
         return f'{UNKNOWN_ROLE}（{speaker["key"]}）'
-    if not speaker.get('role_confirmed'):
-        return speaker['key']
+    if not speaker.get('role_confirmed') and speaker.get('role_source') != 'voice_match':
+        return speaker.get('speaker_label') or '说话人 ' + speaker['key'].rsplit('-', 1)[-1]
     name = speaker.get('display_name') or (speaker.get('role_name') or speaker['key']).split('｜')[0]
     return (display_names or {}).get(name, name)
 
@@ -78,7 +120,7 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     def display(key):
         if not key:
             return '—'
-        return display_names.get(confirmed(key), confirmed(key))
+        return shown_name(speakers[key], display_names)
     def corrected(text):
         return terms.correct_derived(text, sid, corrections, protected)
     brief = section.get('reader', {})
@@ -106,7 +148,7 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
     identities = set()
     unknown = 0
     for key, speaker in speakers.items():
-        if speaker.get('diarization_unassigned') and not speaker.get('identity_group'):
+        if (speaker.get('diarization_unassigned') or speaker['key'].endswith('-UNASSIGNED')) and not speaker.get('identity_group'):
             continue  # unattributed speech is not a participant
         if speaker.get('accepted_unknown') or speaker.get('role_name') == UNKNOWN_ROLE:
             unknown += 1
@@ -114,11 +156,18 @@ def from_workspace(state, sid, section, corrections, protected=(), display_names
         identity = speaker.get('identity_group') or key
         if identity not in identities:
             identities.add(identity)
-            people.append({'name': confirmed(key), 'shown': display(key)})
+            people.append({'name': confirmed(key), 'shown': display(key), 'role_confirmed': bool(speaker.get('role_confirmed'))})
     participants = '、'.join(p['shown'] for p in people)
     if unknown:
         participants = (participants + '等' if participants else '') + str(len(people) + unknown) + '人'
+    speaker_rows = [{'key': key, 'name': display(key),
+                     'role_confirmed': bool(s.get('role_confirmed')),
+                     'role_source': s.get('role_source', '')}
+                    for key, s in speakers.items()
+                    if not s.get('diarization_unassigned') and not key.endswith('-UNASSIGNED')]
     return {'schema_version': 2, 'source_id': sid, 'theme': theme, 'layout': layout,
+        'workspace_id': state.get('workspace_id'), 'revision': state.get('revision'),
+        'speakers': speaker_rows,
         'topic': corrected(brief.get('topic') or section.get('title') or '会议纪要'),
         'meeting_time': str(section.get('meeting_time') or section.get('meeting_date') or ''),
         'participants': participants, 'people': people,

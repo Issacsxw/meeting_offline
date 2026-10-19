@@ -144,6 +144,7 @@
 @media(max-width:650px){:root[data-layout=official] .hero,:root[data-layout=cards] .hero,:root[data-layout=timeline] .hero,:root[data-layout=checklist] .hero{padding:28px 22px 16px}:root[data-layout=official] .content,:root[data-layout=cards] .content,:root[data-layout=checklist] .content{padding:20px 22px 30px}:root[data-layout=cards] #points{grid-template-columns:1fr}:root[data-layout=official] .eyebrow{font-size:24px;letter-spacing:8px;padding-left:8px}:root[data-layout=checklist] .sheet{max-width:calc(100% - 20px)}}
 @media print{body{background:var(--paper)}.toolbar,.theme-picker,.add,.delete,dialog,.point-status[data-status=""]{display:none!important}.sheet{width:100%;max-width:none;border:0;box-shadow:none;margin:0;border-radius:0}.hero{print-color-adjust:exact}.content{padding-top:24px}.field:hover,.field:focus{background:none;box-shadow:none}.point,tr{break-inside:avoid}.overview,th,.todo-owner{print-color-adjust:exact}}
 
+.speaker-panel,.audit-warning{max-width:920px;margin:16px auto;padding:16px 24px;background:var(--paper);border:1px solid var(--border);border-radius:10px}.speaker-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}.speaker-row input{font:inherit;padding:7px;border:1px solid var(--border);color:var(--ink);background:var(--paper)}.voice-pending{font-size:12px;opacity:.65}.audit-warning{border-color:var(--accent)}@media print{.speaker-panel,.voice-pending{display:none}}
 </style></head><body>
 <header class="toolbar"><div class="tools"><div><div class="editor-label">会议纪要编辑器</div><div class="hint">点击文字编辑 · 保存 HTML 保留修改</div></div><div class="buttons"><label class="theme-picker">样式<select id="theme" aria-label="纪要样式"></select></label><label class="theme-picker">版式<select id="layout" aria-label="纪要版式"></select></label><button id="edit-info" class="secondary">会议信息</button><button id="save-html" class="secondary">保存 HTML</button><button id="export-png">导出图片</button></div></div><div id="status" role="status" aria-live="polite"></div></header>
 <main class="sheet" id="sheet">
@@ -157,10 +158,16 @@
 </main>
 <dialog id="info-dialog" class="info-dialog"><h2>会议信息</h2><label for="info-time">会议时间<input id="info-time" type="text" placeholder="填写日期与时段，可留空"></label><label for="info-people">参会人<input id="info-people" type="text" placeholder="姓名，用顿号分隔"></label><label for="info-summary">会议概要<textarea id="info-summary" rows="4"></textarea></label><p>留空的时间不会出现在纪要和图片中。</p><div class="buttons"><button id="close-info" class="secondary">取消</button><button id="apply-info">应用</button></div></dialog>
 <dialog id="image-dialog" class="image-dialog"><div class="dialog-head"><div><strong>图片预览</strong><div id="export-size" class="export-size"></div></div><div class="buttons"><a id="download-image" class="image-download" download>下载 PNG</a><button id="close-preview" class="secondary">关闭</button></div></div><img id="png-preview" alt="会议纪要图片预览"></dialog>
+<script type="application/json" id="meeting-speaker-edits">__SPEAKER_EDITS__</script>
 <script type="application/json" id="minutes-data">__MEETING_DATA__</script>
+<section id="audit-warning" class="audit-warning" hidden></section>
+<section id="speaker-rename-warning" class="audit-warning" role="status" aria-live="polite" hidden></section>
+<section id="speaker-panel" class="speaker-panel" hidden><strong>说话人</strong><div id="speaker-rows"></div><small>仅点击“确认 / 保存姓名”的身份会在导回工作区时确认。保存 HTML 保留修改。</small></section>
 <script>
 'use strict';
 const seed=JSON.parse(document.querySelector('#minutes-data').textContent);
+const speakerEdits=JSON.parse(document.querySelector('#meeting-speaker-edits').textContent);
+let speakerRows=(seed.speakers||[]).map(s=>({...s}));
 const THEMES={warm:'暖白陶土',business:'商务蓝',mono:'极简黑白',fresh:'清新绿',dark:'深色'};
 const LAYOUTS={classic:'经典',official:'公文',cards:'卡片',timeline:'时间轴',checklist:'极简清单'};
 // How settled each point is; click the tag in the editor to change it.
@@ -174,7 +181,7 @@ const $=selector=>document.querySelector(selector);
 const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e};
 let dirty=false,currentImageObjectURL=null;
 function status(value){$('#status').textContent=value}
-function changed(){dirty=true;status('有未保存的修改；保存 HTML 可在下次打开时继续编辑。')}
+function changed(){dirty=true;renderSpeakerRenameWarning(collect());status('有未保存的修改；保存 HTML 可在下次打开时继续编辑。')}
 function editable(value,label,cls){const e=element('div',value,'field '+(cls||''));e.contentEditable='true';e.setAttribute('role','textbox');e.setAttribute('aria-label',label);return e}
 function text(e){return e.innerText.replace(/\u00a0/g,' ').trim()}
 function syncCounts(){const rows=[...$('#todos').children];$('#no-todos').hidden=!!rows.length;$('#todos-wrap').hidden=!rows.length;$('#point-count').textContent=`${$('#points').children.length} 个议题`;const done=rows.filter(r=>r.querySelector('input').checked).length;$('#todo-count').textContent=done?`${done} / ${rows.length} 已完成`:`${rows.length} 项行动`}
@@ -189,7 +196,59 @@ function markEmpty(cell){const sync=()=>{if(['','—'].includes(text(cell.queryS
 function applyLayout(name){const layout=name in LAYOUTS?name:'classic';document.documentElement.dataset.layout=layout;$('#layout').value=layout;labelSections()}
 function applyTheme(name){const theme=name in THEMES?name:'warm';document.documentElement.dataset.theme=theme;$('#theme').value=theme}
 function render(data){applyTheme(data.theme);applyLayout(data.layout);$('#meeting-time').textContent=data.meeting_time||'';$('#topic').textContent=data.topic||'会议纪要';$('#participants').textContent=data.participants||'';$('#summary').textContent=data.summary||'';$('#points').replaceChildren(...(data.points||[]).map(pointRow));$('#todos').replaceChildren(...(data.todos||[]).map(todoRow));syncCounts();syncInfo();document.title=data.topic||'会议纪要'}
-function collect(){return{...seed,theme:document.documentElement.dataset.theme,layout:document.documentElement.dataset.layout,meeting_time:text($('#meeting-time')),topic:text($('#topic')),participants:text($('#participants')),summary:text($('#summary')),points:[...$('#points').children].map(row=>({title:text(row.querySelector('.point-title')),text:text(row.querySelector('.point-text')),status:row.querySelector('.point-status').dataset.status||undefined})),todos:[...$('#todos').children].map(row=>({task:text(row.querySelector('.task-text')),owner:text(row.querySelector('.todo-owner')),deadline:text(row.querySelector('.todo-deadline')),done:row.querySelector('input').checked}))}}
+function collect(){return{...seed,speakers:speakerRows,theme:document.documentElement.dataset.theme,layout:document.documentElement.dataset.layout,meeting_time:text($('#meeting-time')),topic:text($('#topic')),participants:text($('#participants')),summary:text($('#summary')),points:[...$('#points').children].map(row=>({title:text(row.querySelector('.point-title')),text:text(row.querySelector('.point-text')),status:row.querySelector('.point-status').dataset.status||undefined})),todos:[...$('#todos').children].map(row=>({task:text(row.querySelector('.task-text')),owner:text(row.querySelector('.todo-owner')),deadline:text(row.querySelector('.todo-deadline')),done:row.querySelector('input').checked}))}}
+// Replace only recognized speaker aliases, in a single pass (no cascading renames).
+// Keep distinct keys even if two speakers have the same name: ambiguous aliases are not replaced.
+function renameSpeakerDocument(data,key,name){
+ const result=JSON.parse(JSON.stringify(data)),rows=result.speakers||[],target=rows.find(s=>s.key===key);
+ if(!target||key.endsWith('-UNASSIGNED'))throw Error('未知或未分离的说话人');
+ name=String(name).trim();if(!name||name.length>100||/[\x00-\x1f]/.test(name))throw Error('请填写有效姓名（最多100字）');
+ if(name.startsWith('身份未确认')||name==='说话人未分离'||/^说话人\s*\S+/.test(name)||rows.some(s=>s.key===name))throw Error('请填写实际姓名，不能使用代号或未确认标签');
+ if(rows.some(s=>s.key!==key&&s.name===name))throw Error('此姓名已用于其他说话人，请补充区分信息');
+ const aliases=new Map();for(const s of rows)for(const a of new Set([s.key,s.name])){if(!a)continue;if(!aliases.has(a))aliases.set(a,s.key);else if(aliases.get(a)!==s.key)aliases.set(a,null)}
+ const tokens=[...aliases.keys()].sort((a,b)=>b.length-a.length);
+ const replace=value=>{value=String(value||'');let out='',i=0;while(i<value.length){const alias=tokens.find(a=>value.startsWith(a,i));if(alias){const code=/^[^\s]+-[A-Z]+$/.test(alias)||/^说话人\s+\S+$/.test(alias),word=code?/[A-Za-z0-9_]/:/[\p{L}\p{N}_]/u,before=i?value[i-1]:'',after=value[i+alias.length]||'',safe=(code||[...alias].length>=2)&&(!before||!word.test(before))&&(!after||!word.test(after));out+=safe&&aliases.get(alias)===key?name:alias;i+=alias.length}else out+=value[i++]}return out};
+ const exact=value=>aliases.get(String(value))===key?name:replace(value);
+ // The final participant can be followed by the generated unknown-attendee count.
+ // Keep this exact-field exception out of prose, where Chinese word boundaries are ambiguous.
+ const participants=String(result.participants||''),suffix=participants.match(/等\d+人$/);
+ result.participants=(suffix?participants.slice(0,-suffix[0].length):participants).split('、').map(exact).join('、')+(suffix?suffix[0]:'');
+ for(const field of ['summary','topic'])result[field]=replace(result[field]);
+ for(const p of result.points||[]){p.title=exact(p.title);p.text=replace(p.text)}
+ for(const t of result.todos||[]){t.task=replace(t.task);t.owner=t.owner_key===key?name:exact(t.owner)}
+ if(target.name&&target.name!==name)target.previous_names=[...new Set([...(target.previous_names||[]),target.name])];
+ target.name=name;target.role_confirmed=true;target.role_source='user';return result;
+}
+function speakerRenameIssues(data){
+ const rows=data.speakers||[],oldNames=[...new Set(rows.flatMap(s=>(s.previous_names||[]).filter(n=>typeof n==='string'&&n&&n!==s.name)))];
+ if(!oldNames.length)return[];
+ // Longest known names protect a renamed prefix (e.g. 林悦 -> 林悦明) and other speakers.
+ const tokens=[...new Set([...oldNames,...rows.map(s=>s.name).filter(Boolean)])].sort((a,b)=>b.length-a.length);
+ const fields=[['会议主题',data.topic],['参会人',data.participants],['会议概要',data.summary]];
+ for(const [i,p] of (data.points||[]).entries())fields.push(['要点 '+(i+1)+' 标题',p.title],['要点 '+(i+1)+' 正文',p.text]);
+ for(const [i,t] of (data.todos||[]).entries())fields.push(['Todo '+(i+1)+' 事项',t.task],['Todo '+(i+1)+' 负责人',t.owner],['Todo '+(i+1)+' 期限',t.deadline]);
+ const issues=[];for(const [where,value] of fields){const found=new Set(),text=String(value||'');let i=0;while(i<text.length){const token=tokens.find(n=>text.startsWith(n,i));if(token){if(oldNames.includes(token))found.add(token);i+=token.length}else i++}for(const name of found)issues.push({where,name})}
+ return issues;
+}
+function renderSpeakerRenameWarning(data){
+ const issues=speakerRenameIssues(data),box=$('#speaker-rename-warning');box.replaceChildren();box.hidden=!issues.length;
+ if(issues.length){box.append(element('strong','正文里可能还有旧名字，请核对'));const list=element('ul');for(const issue of issues)list.append(element('li',issue.where+'：'+issue.name));box.append(list,element('small','请点击正文逐处核对；自动改名仅替换能确定边界的姓名。'))}
+ return issues;
+}
+function confirmSpeakerRenameExport(data,action){
+ const issues=renderSpeakerRenameWarning(data);if(!issues.length)return true;
+ const message='正文里可能还有旧名字：'+[...new Set(issues.map(issue=>issue.name))].join('、')+'。请核对正文。';
+ status(message);return window.confirm(message+'\n仍要'+action+'吗？');
+}
+function renderSpeakerPanel(){
+ $('#speaker-panel').hidden=!speakerRows.length;
+ $('#speaker-rows').replaceChildren(...speakerRows.map(s=>{const row=element('div',undefined,'speaker-row'),label=element('span',s.key),input=element('input');input.value=s.name;input.setAttribute('aria-label',s.key+' 姓名');
+ const button=element('button',s.role_confirmed?'保存姓名':'确认 / 保存姓名','secondary');
+ if(s.role_source==='voice_match'&&!s.role_confirmed){const badge=element('span','待确认','voice-pending');badge.title='声纹自动识别，尚未经用户确认';row.append(badge)}
+ button.onclick=()=>{try{if(input.value.trim()===s.name&&(s.name==='身份未确认'||s.name.startsWith('身份未确认（')||/^说话人/.test(s.name)||speakerRows.some(r=>r.key===s.name))){status('代号未改，未登记身份确认');return}const data=renameSpeakerDocument({...collect(),speakers:speakerRows},s.key,input.value);speakerRows=data.speakers;speakerEdits.mappings=speakerEdits.mappings.filter(m=>m.key!==s.key);speakerEdits.mappings.push({key:s.key,name:input.value.trim()});render(data);renderSpeakerPanel();changed()}catch(error){status(error.message)}};
+ row.append(label,input,button);return row}));
+}
+function renderAuditWarning(){const issues=seed.audit_issues||[];const box=$('#audit-warning');box.replaceChildren();box.hidden=!issues.length;if(issues.length){box.append(element('strong','这几处和原话对不上，请核对'));const list=element('ul');for(const issue of issues)list.append(element('li',[issue.where,issue.detail||issue.claim].filter(Boolean).join('：')));box.append(list)}}
 function filename(ext){return(text($('#topic'))||'会议纪要').replace(/[<>:"/\\|?*\x00-\x1f]/g,'-').slice(0,90)+'.'+ext}
 function download(url,name){const a=element('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove()}
 $('#theme').replaceChildren(...Object.entries(THEMES).map(([value,label])=>{const o=element('option',label);o.value=value;return o}));
@@ -203,7 +262,7 @@ $('#close-info').onclick=()=>$('#info-dialog').close();
 $('#apply-info').onclick=()=>{$('#meeting-time').textContent=$('#info-time').value.trim();$('#participants').textContent=$('#info-people').value.trim();$('#summary').textContent=$('#info-summary').value.trim();syncInfo();changed();$('#info-dialog').close()};
 $('#add-point').onclick=()=>{$('#points').append(pointRow({title:'新增要点',text:'填写议题结论或讨论方向'}));syncCounts();changed()};
 $('#add-todo').onclick=()=>{$('#todos').append(todoRow({task:'填写事项及交付物',owner:'—',deadline:'—'}));syncCounts();changed()};
-$('#save-html').onclick=()=>{const data=collect(),clone=document.documentElement.cloneNode(true);clone.querySelector('#minutes-data').textContent=JSON.stringify(data).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');clone.querySelectorAll('dialog').forEach(d=>d.removeAttribute('open'));clone.querySelector('#png-preview').removeAttribute('src');clone.querySelector('#download-image').removeAttribute('href');clone.querySelector('#status').textContent='';clone.querySelector('#export-png').disabled=false;clone.querySelectorAll('#info-dialog input,#info-dialog textarea').forEach(e=>{e.value='';e.removeAttribute('value');e.textContent=''});const blob=new Blob(['<!doctype html>\n'+clone.outerHTML],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob);download(url,filename('html'));setTimeout(()=>URL.revokeObjectURL(url),30000);dirty=false;status('已下载可编辑 HTML；下次打开下载的文件即可继续修改。')};
+$('#save-html').onclick=()=>{const data=collect();if(!confirmSpeakerRenameExport(data,'保存 HTML'))return;const clone=document.documentElement.cloneNode(true);clone.querySelector('#minutes-data').textContent=JSON.stringify(data).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');clone.querySelector('#meeting-speaker-edits').textContent=JSON.stringify(speakerEdits).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');clone.querySelectorAll('dialog').forEach(d=>d.removeAttribute('open'));clone.querySelector('#png-preview').removeAttribute('src');clone.querySelector('#download-image').removeAttribute('href');clone.querySelector('#status').textContent='';clone.querySelector('#export-png').disabled=false;clone.querySelectorAll('#info-dialog input,#info-dialog textarea').forEach(e=>{e.value='';e.removeAttribute('value');e.textContent=''});const blob=new Blob(['<!doctype html>\n'+clone.outerHTML],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob);download(url,filename('html'));setTimeout(()=>URL.revokeObjectURL(url),30000);dirty=false;status('已下载可编辑 HTML；下次打开下载的文件即可继续修改。')};
 
 // Canvas uses only local text and browser fonts; no external rendering service.
 const fontStacks={sans:'"Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',serif:'"Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif',number:'"Lora", Georgia, "Times New Roman", serif',latin:'"Poppins", -apple-system, sans-serif'};
@@ -313,7 +372,9 @@ async function makePng(data){if(document.fonts?.ready)await document.fonts.ready
  y+=48;if(y>14000)throw Error('内容较长，请精简或拆分后再导出图片。');const scale=2;canvas.width=width*scale;canvas.height=Math.ceil(y)*scale;ctx.scale(scale,scale);ctx.fillStyle=paper;ctx.fillRect(0,0,width,y);ctx.textBaseline='top';
  for(const op of ops){ctx.fillStyle=op.color;if(op.kind==='rect'){ctx.beginPath();ctx.roundRect(op.x,op.y,op.w,op.h,op.r);ctx.fill()}else if(op.kind==='circle'){ctx.beginPath();ctx.arc(op.x,op.y,op.r,0,Math.PI*2);ctx.fill()}else if(op.kind==='rich'){op.lines.forEach((runs,i)=>{let x=op.x;for(const run of runs){ctx.font=font(op.size,run.weight,op.family);ctx.fillStyle=run.color;ctx.fillText(run.text,x,op.y+i*op.height);const w=ctx.measureText(run.text).width;if(run.strike){ctx.fillStyle=T.done;ctx.fillRect(x,op.y+i*op.height+op.size*0.62,w,1)}x+=w}})}else{ctx.font=font(op.size,op.weight,op.family);ctx.textAlign=op.align;op.lines.forEach((value,i)=>ctx.fillText(value,op.x,op.y+i*op.height));ctx.textAlign='left'}}
  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw Error('图片编码未完成，请重试。');return{url:canvas.toDataURL('image/png'),downloadUrl:URL.createObjectURL(blob),width:canvas.width,height:canvas.height}}
-$('#export-png').onclick=async()=>{const button=$('#export-png');button.disabled=true;status('正在生成图片…');try{const png=await makePng(collect());if(currentImageObjectURL)URL.revokeObjectURL(currentImageObjectURL);currentImageObjectURL=png.downloadUrl;$('#png-preview').src=png.url;$('#download-image').href=png.downloadUrl;$('#download-image').download=filename('png');$('#export-size').textContent=`${png.width} × ${png.height} 像素`;$('#image-dialog').showModal();status('图片已生成，可预览并下载 PNG。')}catch(error){status('导出未完成：'+error.message)}finally{button.disabled=false}};
+$('#export-png').onclick=async()=>{if(!confirmSpeakerRenameExport(collect(),'导出 PNG'))return;const button=$('#export-png');button.disabled=true;status('正在生成图片…');try{const png=await makePng(collect());if(currentImageObjectURL)URL.revokeObjectURL(currentImageObjectURL);currentImageObjectURL=png.downloadUrl;$('#png-preview').src=png.url;$('#download-image').href=png.downloadUrl;$('#download-image').download=filename('png');$('#export-size').textContent=`${png.width} × ${png.height} 像素`;$('#image-dialog').showModal();status('图片已生成，可预览并下载 PNG。')}catch(error){status('导出未完成：'+error.message)}finally{button.disabled=false}};
 $('#close-preview').onclick=()=>$('#image-dialog').close();
-render(seed);
+render(seed);renderSpeakerPanel();renderAuditWarning();renderSpeakerRenameWarning(seed);
+// Keep panels above the actual printable minutes for every layout.
+$('#sheet').before($('#audit-warning'),$('#speaker-rename-warning'),$('#speaker-panel'));
 </script></body></html>

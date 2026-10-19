@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Loopback-only review UI. Streams existing local audio; no cloud requests.
+"""Optional loopback review UI. Shows unconfirmed local voice matches.
+
+Explicit per-speaker selections are saved through workspace.save_roles; viewing
+a match is never identity consent or permission to enroll a voiceprint.
+Streams existing local audio; no cloud requests.
 
   review.py --workspace W --background --open   start (or reuse) the page for W, open it, return at once
   review.py --workspace W --stop                stop that page

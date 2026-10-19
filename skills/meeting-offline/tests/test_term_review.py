@@ -6,6 +6,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import workspace as w
 import term_review as tr
@@ -83,6 +84,23 @@ class TermChoiceTests(unittest.TestCase):
         self.assertEqual(w.read(self.store)['terms'][0]['canonical'], '正词')
         self.assertEqual(w.read(self.root / 'corrections.json'), [])
 
+    def test_batch_same_spelling_records_confirmation_without_a_replacement(self):
+        self.prepare()
+        state = w.read(self.root / 'state.json')
+        state['unconfirmed_term_candidates'][0]['forms'] = ['正词']
+        w.write(self.root / 'state.json', state)
+        tr.confirm_batch(self.root, [{'candidate_id': 'test-choice', 'canonical': '正词'}], 1)
+        state = w.read(self.root / 'state.json')
+        self.assertIn('test-choice', state.get('term_reviews', {}))
+        review = state['term_reviews']['test-choice']
+        self.assertEqual((review['decision'], review['canonical'], review['corrected_segments']), ('confirm', '正词', 0))
+        self.assertEqual(state['changes'][-1]['candidate_ids'], ['test-choice'])
+        self.assertEqual(state['changes'][-1]['skipped'], [])
+        self.assertEqual(w.read(self.root / 'corrections.json'), [])
+        term = w.read(self.store)['terms'][0]
+        self.assertEqual((term['canonical'], term['aliases']), ('正词', []))
+        self.assertEqual(term['review_refs'][0]['evidence'], [{'source_id': '4', 'segment_index': 2, 'heard': '正词'}])
+
     def test_partial_selection_never_learns_alias_or_changes_all_derived_prose(self):
         payload = self.prepare()
         payload['selections'] = [{'heard': '错词', 'segment_indices': [0], 'learn_alias': True}]
@@ -130,6 +148,41 @@ class TermChoiceTests(unittest.TestCase):
             tr.save(self.root, payload, 1)
         self.assertEqual(before, self.store.read_bytes())
         self.assertEqual(w.read(self.root / 'corrections.json'), [])
+
+    def test_failed_batch_cannot_erase_another_workspaces_confirmed_term(self):
+        self.prepare()
+        real_apply = tr.apply_choice
+        started, finished = threading.Event(), threading.Event()
+        failures, workers = [], []
+        def other_workspace():
+            started.set()
+            try:
+                w.confirmed_memory_upsert(self.store, 'term', {'id': 'other-workspace-term',
+                    'canonical': '另一场词条', 'scope': '另一个项目', 'aliases': [], 'confirmation': '另一场用户已确认'})
+            except BaseException as error:
+                failures.append(error)
+            finally:
+                finished.set()
+        def interleaved(*args, **kwargs):
+            change = real_apply(*args, **kwargs)
+            worker = threading.Thread(target=other_workspace, daemon=True)
+            workers.append(worker); worker.start()
+            self.assertTrue(started.wait(2))
+            # Old code releases the store lock after each card, letting B save before A rolls back.
+            # Correct code holds the batch lock, so B completes once A's failed batch has released it.
+            finished.wait(1)
+            return change
+        with patch.object(tr, 'apply_choice', side_effect=interleaved):
+            with self.assertRaisesRegex(ValueError, '第 2 条'):
+                tr.confirm_batch(self.root, [{'candidate_id': 'test-choice', 'canonical': '正词'},
+                                            {'candidate_id': 'missing'}], 1)
+        for worker in workers:
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+        self.assertFalse(failures)
+        self.assertEqual([term['canonical'] for term in w.read(self.store)['terms']], ['另一场词条'])
+        self.assertEqual(w.read(self.root / 'corrections.json'), [])
+        self.assertEqual(w.read(self.root / 'state.json')['revision'], 1)
 
     def test_authenticated_choice_endpoint(self):
         payload = self.prepare()

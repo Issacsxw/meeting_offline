@@ -1,6 +1,6 @@
 {
   "format": "meeting-offline-portable-v1",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "device_scoped": true,
   "contains_personal_data": false,
   "files": {
@@ -60,7 +60,7 @@
     "skills/meeting-offline/tests/test_minutes_voice_panel.py": "abd16d03c70057294f8df1970fae3a7d0f7339f0a38076828854a85fa95fbe64",
     "skills/meeting-offline/tests/test_obsidian.py": "8cce1179eb9812a6da52462d4453c33e160eb42b587b08231d3d51e12c624d69",
     "skills/meeting-offline/tests/test_portability.py": "55d15a7aad0d9b9599f48706eee1b5a63193d6dc4170926e7dfd349d753726c2",
-    "skills/meeting-offline/tests/test_qwen_transport.py": "88d0e327ac2c8f26ef1226a1be5aaaeec4ee65e5bc6d4ba04510aa93d686189b",
+    "skills/meeting-offline/tests/test_qwen_transport.py": "328f1b90c06f72d8748dab4e7c411a26fd3e17b8003241efc2e9822914c5ae68",
     "skills/meeting-offline/tests/test_render_png.py": "f3f3edbd0c7bcad323c496ee7f532d2807fe2d783416111ffd8e3ac04b148c6d",
     "skills/meeting-offline/tests/test_review.py": "b89d0d2d4b55615885af68788d0150569a51df5b042fcd9a4954bc498dbd37da",
     "skills/meeting-offline/tests/test_separation.py": "c9c0295911e1a4272da5d93e4e4edfdcb1bcd0f8d1d5d167a69aeb7fbf6472e4",

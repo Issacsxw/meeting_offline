@@ -55,6 +55,10 @@ class RealRequestTransportTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.audio = self.root / 'synthetic.m4a'
         self.audio.write_bytes(b'synthetic fixture, not a recording')
+        # These tests cover transport only; channel preflight has its own tests.
+        channels = patch.object(qwen_job.audio_duration, 'audio_channels', return_value=[1])
+        channels.start()
+        self.addCleanup(channels.stop)
         self.task = {'output': {'task_status': 'SUCCEEDED', 'results': [
             {'subtask_status': 'SUCCEEDED', 'transcription_url': 'https://result.aliyuncs.com/synthetic'}]}}
         self.raw = {'transcripts': [{'text': '合成测试', 'sentences': [

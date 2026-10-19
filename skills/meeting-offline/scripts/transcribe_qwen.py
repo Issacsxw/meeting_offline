@@ -72,6 +72,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Required for diarization above Alibaba's recommended 2-hour limit",
     )
+    parser.add_argument(
+        "--confirm-channel-0", action="store_true",
+        help="Accept possible loss of other channels/tracks when filetrans selects only channel 0",
+    )
     parser.add_argument("--no-diarization", action="store_true")
     parser.add_argument("--keep-dialect", action="store_true")
     parser.add_argument(
@@ -421,6 +425,9 @@ def normalize_long(
     segments = []
     full_text = []
     transcripts = transcript.get("transcripts", [])
+    if isinstance(transcripts, list) and len(transcripts) > 1:
+        # Speaker IDs are local to each channel. Flattening channels would merge unrelated people.
+        raise TranscriptionError('文件转写返回了多个声道结果，不能合并说话人；原始返回内容已保留，请先检查录音声道。')
     for channel in transcripts if isinstance(transcripts, list) else []:
         if not isinstance(channel, dict):
             continue

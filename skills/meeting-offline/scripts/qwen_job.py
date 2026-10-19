@@ -7,6 +7,7 @@ import os
 import tempfile
 from file_lock import locked_file
 import device_context
+import audio_duration
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,6 +75,33 @@ def check_result(result, config, error):
             raise error('转写结果里有时间戳异常的片段；原始返回内容已保留在任务目录。')
 
 
+def channel_preflight(audio, confirmed=False):
+    """Describe channel-0 risk locally; ffprobe is optional, never infer mono."""
+    try:
+        channels = audio_duration.audio_channels(audio)
+        detail = '检测到各音轨声道数为 ' + str(channels) + '。'
+    except ValueError as exc:
+        channels = None
+        detail = str(exc) + ' '
+    warning = ''
+    if channels != [1]:
+        warning = (detail + '文件转写仅选择声道 0；不同声道可能包含不同内容，其他声道或音轨的内容可能遗漏，'
+                   '不能假定立体声内容相同。供应商不支持多声道说话人分离，继续也不保证得到有效的说话人分离结果。'
+                   '可先准备经核对的单声道副本，或在明确接受上述风险后加 --confirm-channel-0 继续；'
+                   '不会自动混音、选其他轨或增加计费声道。')
+    return {'audio_channels': channels, 'channel_0_confirmation_required': channels != [1],
+            'channel_0_confirmed': bool(confirmed), 'channel_warning': warning}
+
+
+def warn_legacy_channels(manifest, config):
+    if (config['route'] == 'temporary_storage' and manifest.get('audio_channels') != [1]
+            and manifest.get('origin') != 'imported_existing_transcript'):
+        import sys
+        description = ('本任务已确认仅转写声道 0' if manifest.get('channel_0_confirmed') else '旧任务未做声道确认')
+        print('[Qwen] ' + description + '；若其他声道或音轨内容不同，可能遗漏。复用或续查不会重新上传。',
+              file=sys.stderr, flush=True)
+
+
 def describe(args, api):
     audio = Path(args.audio).expanduser().resolve()
     if not audio.is_file():
@@ -111,7 +139,13 @@ def execute(args, api):
     if prior and (prior.get('audio_sha256') != sha or prior.get('config') != config):
         raise api.TranscriptionError('这个任务目录属于另一段录音或另一组设置；请换一个目录。')
     if args.dry_run:
-        return {'dry_run': True, 'audio': audio.name, **config, 'audio_sha256': sha,
+        channel_info = {}
+        if (config['route'] == 'temporary_storage' and not args.import_result
+                and not (prior and (prior.get('task_id') or
+                         (prior.get('status') == 'completed' and (directory / 'result.json').exists())))):
+            channel_info = channel_preflight(audio, getattr(args, 'confirm_channel_0', False)
+                                             or bool(prior and prior.get('channel_0_confirmed')))
+        return {'dry_run': True, 'audio': audio.name, **config, **channel_info, 'audio_sha256': sha,
                 'job_dir': str(directory), 'job_status': prior.get('status') if prior else 'new',
                 'network_route': args.network_route, 'cloud_transfer': not bool(args.import_result or (prior and (prior.get('status') == 'completed' or prior.get('task_id') or prior.get('oss_url')))),
                 'temporary_audio_retention_hours': 48 if config['route'] == 'temporary_storage' else 0}
@@ -133,6 +167,7 @@ def execute(args, api):
         if manifest['status'] == 'completed' and result_path.exists():
             result = json.loads(result_path.read_text(encoding='utf-8'))
             check_result(result, config, api.TranscriptionError)
+            warn_legacy_channels(manifest, config)
             print('[Qwen] 复用本机已完成的转写结果，未联网、未读取密钥', file=sys.stderr)
             return result
         if args.import_result:
@@ -168,6 +203,20 @@ def execute(args, api):
         needs_transfer = not manifest.get('task_id') and not manifest.get('oss_url')
         if needs_transfer and not args.confirm_upload:
             raise api.TranscriptionError('这段录音尚未上传。先用 --dry-run 查看计划，用户同意后加 --confirm-upload。')
+        if config['route'] == 'temporary_storage':
+            if not manifest.get('task_id'):
+                channel_info = channel_preflight(audio, getattr(args, 'confirm_channel_0', False)
+                                                 or manifest.get('channel_0_confirmed', False))
+                if channel_info['channel_0_confirmation_required']:
+                    if not channel_info['channel_0_confirmed']:
+                        raise api.TranscriptionError(channel_info['channel_warning'] + '本次未发起上传或转写请求。')
+                    print('[Qwen] ' + channel_info['channel_warning'] + '用户已确认，按原请求仅转写声道 0。',
+                          file=sys.stderr, flush=True)
+                # Consent/layout are metadata only; keep the config/hash and resumable job ID.
+                manifest['audio_channels'] = channel_info['audio_channels']
+                manifest['channel_0_confirmed'] = channel_info['channel_0_confirmed']
+            else:
+                warn_legacy_channels(manifest, config)
         key = api.get_api_key()
         if config['route'] == 'direct_base64':
             stage('submitting')

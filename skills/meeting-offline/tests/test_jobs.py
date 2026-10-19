@@ -1,21 +1,25 @@
 import argparse
 import io
 import urllib.error
+import struct
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+import wave
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import transcribe_qwen as api
 import qwen_job
+from audio_fixtures import aac_config, audio_entry, m4a, track
 
 
 class JobTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.root = Path(self.tmp.name)
-        self.audio = self.root / 'one.m4a'; self.audio.write_bytes(b'synthetic audio fixture')
+        self.audio = self.root / 'one.wav'
+        self.write_wav(1)
         self.words = self.root / 'words.json'; self.words.write_text('{"测试产品":2}')
         self.args = argparse.Namespace(audio=str(self.audio), duration_seconds=400,
             region='cn', no_diarization=False, keep_dialect=False, filetrans=False,
@@ -25,6 +29,18 @@ class JobTests(unittest.TestCase):
         self.task = {'output': {'task_status':'SUCCEEDED', 'results':[{'subtask_status':'SUCCEEDED','transcription_url':'https://result.aliyuncs.com/a'}]}}
         self.transcript = {'transcripts':[{'text':'测试产品', 'sentences':[{'text':'测试产品','begin_time':0,'end_time':1000,'speaker_id':0}]}]}
     def tearDown(self): self.tmp.cleanup()
+    def write_wav(self, channels):
+        with wave.open(str(self.audio), 'wb') as output:
+            output.setparams((channels, 2, 8000, 0, 'NONE', 'not compressed'))
+            output.writeframes(b'\0\0' * channels * 8000)
+
+    def save_manifest(self, **extra):
+        _, config, sha, job_id, directory = qwen_job.describe(self.args, api)
+        directory.mkdir(exist_ok=True)
+        manifest = {'device_id': qwen_job.device_context.device_id(), 'status': 'planned',
+                    'audio_sha256': sha, 'config': config, 'job_id': job_id, **extra}
+        qwen_job.save_json(directory / 'job.json', manifest)
+        return directory
     def test_resume_and_cache_never_duplicate_upload(self):
         def request(url, **kwargs):
             if kwargs.get('method')=='POST':
@@ -88,6 +104,210 @@ class JobTests(unittest.TestCase):
     def test_import_does_not_claim_hotword_effect(self):
         self.args.import_result=str(self.root/'result.json')
         with self.assertRaisesRegex(api.TranscriptionError,'热词'):qwen_job.execute(self.args,api)
+
+    def complete_filetrans(self):
+        def request(url, **kwargs):
+            if kwargs.get('method') == 'POST':
+                self.assertEqual(kwargs['payload']['parameters']['channel_id'], [0])
+                return {'output': {'task_id': 'synthetic-task'}}
+            return self.transcript
+        with patch.object(api, 'get_api_key', return_value='synthetic'), \
+             patch.object(api, 'get_upload_policy', return_value={}), \
+             patch.object(api, 'upload_temporary', return_value='oss://synthetic') as upload, \
+             patch.object(api, 'request_json', side_effect=request) as calls, \
+             patch.object(api, 'poll_task', return_value=self.task):
+            result = qwen_job.execute(self.args, api)
+        self.assertEqual(upload.call_count, 1)
+        self.assertEqual(sum(c.kwargs.get('method') == 'POST' for c in calls.call_args_list), 1)
+        return result
+
+    def test_confirmed_stereo_with_different_channel_content_can_continue(self):
+        with wave.open(str(self.audio), 'wb') as output:
+            output.setparams((2, 2, 8000, 0, 'NONE', 'not compressed'))
+            output.writeframes(b''.join(struct.pack('<hh', i, -i) for i in range(8000)))
+        self.args.confirm_channel_0 = True
+        with patch.object(sys, 'stderr', new_callable=io.StringIO) as warning:
+            self.assertEqual(self.complete_filetrans()['text'], '测试产品')
+        manifest = json.loads((self.root / 'job/job.json').read_text())
+        self.assertEqual(manifest['audio_channels'], [2])
+        self.assertTrue(manifest['channel_0_confirmed'])
+        self.assertIn('其他声道', warning.getvalue())
+        self.assertIn('可能遗漏', warning.getvalue())
+
+    def write_m4a(self, data):
+        self.audio = self.root / 'recording.m4a'
+        self.audio.write_bytes(data)
+        self.args.audio = str(self.audio)
+
+    def test_mono_m4a_passes_without_ffprobe_or_channel_confirmation(self):
+        self.write_m4a(m4a(track([audio_entry(2, aac_config(1))])))
+        with patch.object(qwen_job.audio_duration.shutil, 'which', return_value=None):
+            self.assertEqual(self.complete_filetrans()['text'], '测试产品')
+        manifest = json.loads((self.root / 'job/job.json').read_text())
+        self.assertEqual(manifest['audio_channels'], [1])
+        self.assertFalse(manifest['channel_0_confirmed'])
+
+    def test_stereo_multitrack_and_unknown_m4a_still_require_confirmation_without_ffprobe(self):
+        for data in (m4a(track([audio_entry(2, aac_config(2))])),
+                     m4a(track([audio_entry(1)]), track([audio_entry(1)])),
+                     m4a(track([audio_entry(1, aac_config(0))])), b'unknown'):
+            with self.subTest(data=data):
+                self.write_m4a(data)
+                with patch.object(qwen_job.audio_duration.shutil, 'which', return_value=None), \
+                     patch.object(api, 'get_api_key', side_effect=AssertionError('no key')), \
+                     patch.object(api, 'request_json', side_effect=AssertionError('no network')), \
+                     patch.object(api, 'upload_temporary', side_effect=AssertionError('no upload')):
+                    with self.assertRaisesRegex(api.TranscriptionError, 'confirm-channel-0'):
+                        qwen_job.execute(self.args, api)
+                self.assertFalse((self.root / 'job/job.json').exists())
+
+    def test_confirmed_stereo_m4a_can_continue_without_ffprobe(self):
+        self.write_m4a(m4a(track([audio_entry(2, aac_config(2))])))
+        self.args.confirm_channel_0 = True
+        with patch.object(qwen_job.audio_duration.shutil, 'which', return_value=None):
+            self.assertEqual(self.complete_filetrans()['text'], '测试产品')
+        manifest = json.loads((self.root / 'job/job.json').read_text())
+        self.assertEqual(manifest['audio_channels'], [2])
+        self.assertTrue(manifest['channel_0_confirmed'])
+
+    def test_missing_optional_ffprobe_can_continue_after_confirmation(self):
+        self.audio = self.root / 'recording.m4a'
+        self.audio.write_bytes(b'synthetic m4a fixture; never uploaded')
+        self.args.audio = str(self.audio)
+        self.args.confirm_channel_0 = True
+        with patch.object(qwen_job.audio_duration.shutil, 'which', return_value=None):
+            self.assertEqual(self.complete_filetrans()['text'], '测试产品')
+        manifest = json.loads((self.root / 'job/job.json').read_text())
+        self.assertIsNone(manifest['audio_channels'])
+        self.assertTrue(manifest['channel_0_confirmed'])
+
+    def test_stereo_dry_run_returns_risk_and_confirmation_plan(self):
+        self.write_wav(2)
+        self.args.dry_run = True
+        with patch.object(api, 'get_api_key', side_effect=AssertionError('no key')), \
+             patch.object(api, 'request_json', side_effect=AssertionError('no network')):
+            plan = qwen_job.execute(self.args, api)
+        self.assertEqual(plan['audio_channels'], [2])
+        self.assertTrue(plan['channel_0_confirmation_required'])
+        self.assertFalse(plan['channel_0_confirmed'])
+        self.assertIn('可能遗漏', plan['channel_warning'])
+        self.assertFalse((self.root / 'job').exists())
+
+    def test_channel_confirmation_is_not_upload_authorization(self):
+        self.write_wav(2)
+        self.args.confirm_channel_0 = True
+        self.args.confirm_upload = False
+        with patch.object(api, 'get_api_key', side_effect=AssertionError('no key')):
+            with self.assertRaisesRegex(api.TranscriptionError, '尚未上传'):
+                qwen_job.execute(self.args, api)
+        self.assertFalse((self.root / 'job/job.json').exists())
+
+    def test_multiple_tracks_can_continue_only_after_explicit_confirmation(self):
+        self.args.confirm_channel_0 = True
+        with patch.object(qwen_job.audio_duration, 'audio_channels', return_value=[1, 1]):
+            self.assertEqual(self.complete_filetrans()['text'], '测试产品')
+        self.assertEqual(json.loads((self.root / 'job/job.json').read_text())['audio_channels'], [1, 1])
+
+    def test_saved_channel_consent_applies_to_same_job_retry_without_reupload(self):
+        self.write_wav(2)
+        self.args.confirm_channel_0 = True
+        with patch.object(api, 'get_api_key', return_value='synthetic'), \
+             patch.object(api, 'get_upload_policy', return_value={}), \
+             patch.object(api, 'upload_temporary', return_value='oss://synthetic'), \
+             patch.object(api, 'request_json', side_effect=api.TranscriptionError('HTTP 401', not_processed=True)):
+            with self.assertRaisesRegex(api.TranscriptionError, '401'):
+                qwen_job.execute(self.args, api)
+        self.args.confirm_channel_0 = False
+        self.args.confirm_upload = False
+        def request(url, **kwargs):
+            return {'output': {'task_id': 'synthetic-task'}} if kwargs.get('method') == 'POST' else self.transcript
+        with patch.object(api, 'get_api_key', return_value='synthetic'), \
+             patch.object(api, 'upload_temporary', side_effect=AssertionError('no reupload')), \
+             patch.object(api, 'request_json', side_effect=request), \
+             patch.object(api, 'poll_task', return_value=self.task):
+            self.assertEqual(qwen_job.execute(self.args, api)['text'], '测试产品')
+        self.assertTrue(json.loads((self.root / 'job/job.json').read_text())['channel_0_confirmed'])
+
+    def test_cli_accepts_separate_channel_zero_risk_confirmation(self):
+        with patch.object(sys, 'argv', ['transcribe_qwen.py', '--audio', str(self.audio), '--confirm-channel-0']):
+            self.assertTrue(api.parse_args().confirm_channel_0)
+
+    def test_filetrans_rejects_stereo_before_key_upload_or_submission(self):
+        self.write_wav(2)
+        for duration, filetrans, no_diarization in [(400, False, False), (400, False, True), (30, True, False)]:
+            with self.subTest(duration=duration, no_diarization=no_diarization):
+                self.args.duration_seconds = duration
+                self.args.filetrans = filetrans
+                self.args.no_diarization = no_diarization
+                with patch.object(api, 'get_api_key', side_effect=AssertionError('no key')), \
+                     patch.object(api, 'request_json', side_effect=AssertionError('no network')), \
+                     patch.object(api, 'upload_temporary', side_effect=AssertionError('no upload')):
+                    with self.assertRaisesRegex(api.TranscriptionError, 'confirm-channel-0'):
+                        qwen_job.execute(self.args, api)
+                self.assertFalse((self.root / 'job/job.json').exists())
+
+    def test_unknown_layout_dry_run_returns_risk_without_creating_a_job(self):
+        self.args.dry_run = True
+        with patch.object(qwen_job.audio_duration, 'audio_channels', side_effect=ValueError('无法确认声道')):
+            plan = qwen_job.execute(self.args, api)
+        self.assertIsNone(plan['audio_channels'])
+        self.assertTrue(plan['channel_0_confirmation_required'])
+        self.assertIn('confirm-channel-0', plan['channel_warning'])
+        self.assertFalse((self.root / 'job').exists())
+
+    def test_unknown_channel_layout_fails_before_reading_key(self):
+        with patch.object(qwen_job.audio_duration, 'audio_channels', side_effect=ValueError('无法确认声道')), \
+             patch.object(api, 'get_api_key', side_effect=AssertionError('no key')):
+            with self.assertRaisesRegex(api.TranscriptionError, '声道'):
+                qwen_job.execute(self.args, api)
+
+    def test_multiple_mono_streams_are_also_rejected(self):
+        with patch.object(qwen_job.audio_duration, 'audio_channels', return_value=[1, 1]), \
+             patch.object(api, 'get_api_key', side_effect=AssertionError('no key')):
+            with self.assertRaisesRegex(api.TranscriptionError, '其他声道或音轨'):
+                qwen_job.execute(self.args, api)
+
+    def test_mono_preflight_preserves_existing_config_and_job_identity(self):
+        self.args.job_dir = None
+        _, config, _, _, directory = qwen_job.describe(self.args, api)
+        self.args.dry_run = True
+        plan = qwen_job.execute(self.args, api)
+        self.assertEqual(plan['job_dir'], str(directory))
+        self.assertEqual({key: plan[key] for key in config}, config)
+
+    def test_existing_task_resumes_even_for_stereo_without_submitting_again(self):
+        self.write_wav(2)
+        self.save_manifest(status='submitted', task_id='existing-task')
+        with patch.object(qwen_job.audio_duration, 'audio_channels', side_effect=AssertionError('resume needs no probe')), \
+             patch.object(api, 'get_api_key', return_value='synthetic'), \
+             patch.object(api, 'poll_task', return_value=self.task), \
+             patch.object(api, 'request_json', return_value=self.transcript) as request, \
+             patch.object(api, 'upload_temporary', side_effect=AssertionError('no upload')):
+            self.assertEqual(qwen_job.execute(self.args, api)['text'], '测试产品')
+        self.assertEqual(request.call_count, 1)
+        self.assertNotIn('method', request.call_args.kwargs)
+        with patch.object(qwen_job.audio_duration, 'audio_channels', side_effect=AssertionError('cache needs no probe')), \
+             patch.object(api, 'get_api_key', side_effect=AssertionError('cache needs no key')):
+            self.assertEqual(qwen_job.execute(self.args, api)['text'], '测试产品')
+
+    def test_uploaded_stereo_without_task_id_is_not_submitted(self):
+        self.write_wav(2)
+        directory = self.save_manifest(status='uploaded', oss_url='oss://synthetic', uploaded_at=qwen_job.now())
+        before = (directory / 'job.json').read_bytes()
+        with patch.object(api, 'get_api_key', side_effect=AssertionError('no key')):
+            with self.assertRaisesRegex(api.TranscriptionError, 'confirm-channel-0'):
+                qwen_job.execute(self.args, api)
+        self.assertEqual((directory / 'job.json').read_bytes(), before)
+
+    def test_imported_stereo_result_remains_offline(self):
+        self.write_wav(2)
+        self.args.hotwords = None
+        imported = self.root / 'imported.json'
+        imported.write_text(json.dumps(api.normalize_long(self.transcript, self.task, 400)))
+        self.args.import_result = str(imported)
+        with patch.object(qwen_job.audio_duration, 'audio_channels', side_effect=AssertionError('import needs no probe')), \
+             patch.object(api, 'get_api_key', side_effect=AssertionError('import needs no key')):
+            self.assertEqual(qwen_job.execute(self.args, api)['text'], '测试产品')
 
 
     def save_manifest(self, **extra):

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+from contextlib import ExitStack
 import hashlib
 import importlib.util
 import json
 import math
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -66,16 +68,8 @@ def status():
 
 
 def set_preference(value):
-    paths = device_context.paths(); path = paths['preferences']
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with locked_file(path.with_suffix('.lock')):
-        stored = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
-        if stored.get('device_id') not in (None, paths['device_id']):
-            raise ValueError('Preferences belong to another device.')
-        section = stored.setdefault('meeting_offline', dict(stored.get('meeting_minutes') or {}))
-        section['voiceprint'] = value
-        stored['device_id'] = paths['device_id']
-        atomic_write(path, stored)
+    from obsidian import write_preference
+    write_preference({'voiceprint': value})
 
 
 def enable(user_consented=False, install_dependencies=False):
@@ -98,7 +92,7 @@ def read_library():
     if not path.exists():
         return {'schema_version': 1, 'device_id': device_context.device_id(), 'model': MODEL_ID, 'profiles': {}}
     data = json.loads(path.read_text(encoding='utf-8'))
-    if data.get('schema_version') != 1 or data.get('device_id') != device_context.device_id() or \
+    if not isinstance(data, dict) or data.get('schema_version') != 1 or data.get('device_id') != device_context.device_id() or \
             data.get('model') != MODEL_ID or not isinstance(data.get('profiles'), dict):
         raise ValueError('Incompatible voiceprint library; existing data left unchanged.')
     return data
@@ -132,10 +126,12 @@ def unassigned(speaker):
 def normalize(vector):
     if not isinstance(vector, (list, tuple)) or not vector or any(type(x) not in (int, float) or not math.isfinite(x) for x in vector):
         raise ValueError('Invalid voice vector.')
-    norm = math.sqrt(sum(x*x for x in vector))
-    if not math.isfinite(norm) or norm <= 0:
+    scale = max(abs(x) for x in vector)
+    if scale == 0:
         raise ValueError('Empty voice vector.')
-    return [x/norm for x in vector]
+    scaled = [x / scale for x in vector]
+    norm = math.sqrt(math.fsum(x*x for x in scaled))
+    return [x / norm for x in scaled]
 
 
 def cosine(left, right):
@@ -184,7 +180,7 @@ def reliable_segments(speaker, speakers):
 
 
 def choose_matches(vectors, profiles, reserved=()):
-    """Greedy highest-confidence assignment; collision losers remain unknown (no fallback)."""
+    """Match within one recording; every conflicting candidate remains unknown."""
     candidates = []
     for key, vector in vectors.items():
         if key.endswith('-UNASSIGNED'):
@@ -199,12 +195,15 @@ def choose_matches(vectors, profiles, reserved=()):
         if not scores:
             continue
         best, pid = scores[0]; second = scores[1][0] if len(scores) > 1 else -1.0
-        if best > SIMILARITY_THRESHOLD and best-second >= SIMILARITY_MARGIN:
+        if best > SIMILARITY_THRESHOLD and best-second + 1e-9 >= SIMILARITY_MARGIN:
             candidates.append((best, key, pid))
     used = set(reserved); matches = {}
-    for score, key, pid in sorted(candidates, key=lambda x: (-x[0], x[1])):
-        if pid not in used:
-            matches[key] = {'profile_id': pid, 'similarity': score}; used.add(pid)
+    counts = {}
+    for _, _, pid in candidates:
+        counts[pid] = counts.get(pid, 0) + 1
+    for score, key, pid in candidates:
+        if pid not in used and counts[pid] == 1:
+            matches[key] = {'profile_id': pid, 'similarity': score}
     return matches
 
 
@@ -238,34 +237,83 @@ def pcm_mono_16k(raw, width, channels, rate):
     return converted
 
 
-def extract_vector(audio, clips):
+class ExtractionSession:
+    """One local engine and one decoded file/hash per original recording per operation."""
+    def __init__(self):
+        self.stack = ExitStack()
+        self.extractor = None
+        self.decoded = {}
+        self.hashes = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return self.stack.__exit__(*args)
+
+    def check_hash(self, audio, expected):
+        if not expected:
+            return
+        key = str(Path(audio).resolve())
+        if key not in self.hashes:
+            digest = hashlib.sha256()
+            with Path(audio).open('rb') as original:
+                for chunk in iter(lambda: original.read(1024 * 1024), b''):
+                    digest.update(chunk)
+            self.hashes[key] = digest.hexdigest()
+        if self.hashes[key] != expected:
+            raise ValueError('Original recording changed; voiceprint extraction refused.')
+
+    def engine(self):
+        if self.extractor is None:
+            if not model_path().is_file():
+                raise ValueError('Voiceprint model missing; install optional dependencies after consent.')
+            import sherpa_onnx
+            config = sherpa_onnx.SpeakerEmbeddingExtractorConfig(
+                model=str(model_path()), num_threads=1, provider='cpu')
+            self.extractor = sherpa_onnx.SpeakerEmbeddingExtractor(config)
+        return self.extractor
+
+    def decode(self, audio):
+        key = str(Path(audio).resolve())
+        if key not in self.decoded:
+            if Path(audio).suffix.lower() not in ('.wav', '.wave') and not shutil.which('ffmpeg'):
+                raise ValueError('Install ffmpeg locally to read this audio format, or provide an uncompressed PCM WAV.')
+            from transcribe_local import to_wav
+            tmp = self.stack.enter_context(tempfile.TemporaryDirectory(prefix='meeting-voice-'))
+            self.decoded[key] = to_wav(Path(audio), tmp)
+        return self.decoded[key]
+
+
+def extract_vector(audio, clips, session=None):
     """Local PCM extraction. Optional codec/engine are never installed or downloaded here."""
     if not status()['enabled']:
         raise ValueError('Voiceprint consent is required.')
-    if not model_path().is_file():
-        raise ValueError('Voiceprint model missing; use enable --user-consented --install-dependencies after consent.')
-    import sherpa_onnx
-    from transcribe_local import to_wav
-    config = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(model_path()), num_threads=1, provider='cpu')
-    extractor = sherpa_onnx.SpeakerEmbeddingExtractor(config)
+    if session is None:
+        with ExtractionSession() as session:
+            return extract_vector(audio, clips, session)
+    extractor = session.engine()
     vectors = []; weights = []
-    with tempfile.TemporaryDirectory(prefix='meeting-voice-') as tmp:
-        decoded = to_wav(Path(audio), tmp)
-        with wave.open(str(decoded), 'rb') as handle:
-            rate, channels, width = handle.getframerate(), handle.getnchannels(), handle.getsampwidth()
-            if handle.getcomptype() != 'NONE':
-                raise ValueError('Voiceprint requires uncompressed PCM WAV; convert locally first.')
-            duration = handle.getnframes()/float(rate)
-            if any(b > duration+1/rate for _, b in clips):
-                raise ValueError('Transcript timestamps exceed the original audio.')
-            for a, b in clips:
-                handle.setpos(int(a*rate)); raw = handle.readframes(int((b-a)*rate))
-                samples = pcm_mono_16k(raw, width, channels, rate)
-                stream = extractor.create_stream(); stream.accept_waveform(16000, samples); stream.input_finished()
-                if not extractor.is_ready(stream):
-                    continue
-                vector = normalize(list(extractor.compute(stream)))
-                vectors.append(vector); weights.append(len(samples)/16000)
+    decoded = session.decode(audio)
+    try:
+        handle = wave.open(str(decoded), 'rb')
+    except (wave.Error, EOFError) as error:
+        raise ValueError('Unsupported WAV; provide an uncompressed PCM WAV.') from error
+    with handle:
+        rate, channels, width = handle.getframerate(), handle.getnchannels(), handle.getsampwidth()
+        if handle.getcomptype() != 'NONE':
+            raise ValueError('Voiceprint requires uncompressed PCM WAV; convert locally first.')
+        duration = handle.getnframes()/float(rate)
+        if any(a < 0 or b <= a or b > duration+1/rate for a, b in clips):
+            raise ValueError('Transcript timestamps exceed the original audio.')
+        for a, b in clips:
+            handle.setpos(int(a*rate)); raw = handle.readframes(int((b-a)*rate))
+            samples = pcm_mono_16k(raw, width, channels, rate)
+            stream = extractor.create_stream(); stream.accept_waveform(16000, samples); stream.input_finished()
+            if not extractor.is_ready(stream):
+                continue
+            vector = normalize(list(extractor.compute(stream)))
+            vectors.append(vector); weights.append(len(samples)/16000)
     if sum(weights) < MIN_TOTAL_SECONDS or not vectors:
         raise ValueError('Not enough usable speech for a voiceprint.')
     if any(len(v) != len(vectors[0]) for v in vectors):
@@ -276,26 +324,21 @@ def extract_vector(audio, clips):
 def speaker_vectors(root, state, keys=None):
     sources = {s['source_id']: s for s in state.get('sources', [])}
     result = {}; skipped = {}
-    for speaker in state.get('speakers', []):
-        key = speaker['key']
-        if keys is not None and key not in keys:
-            continue
-        clips = reliable_segments(speaker, state['speakers'])
-        source = sources.get(speaker.get('source_id'), {})
-        audio = source.get('audio_path')
-        if not clips or not audio:
-            skipped[key] = 'insufficient_reliable_audio'; continue
-        try:
-            if source.get('audio_sha256'):
-                digest = hashlib.sha256()
-                with Path(audio).open('rb') as original:
-                    for chunk in iter(lambda: original.read(1024 * 1024), b''):
-                        digest.update(chunk)
-                if digest.hexdigest() != source['audio_sha256']:
-                    raise ValueError('Original recording changed; voiceprint extraction refused.')
-            result[key] = extract_vector(audio, clips)
-        except (OSError, ValueError, RuntimeError, ImportError, subprocess.SubprocessError, wave.Error) as error:
-            skipped[key] = str(error)
+    with ExtractionSession() as session:
+        for speaker in state.get('speakers', []):
+            key = speaker['key']
+            if keys is not None and key not in keys:
+                continue
+            clips = reliable_segments(speaker, state['speakers'])
+            source = sources.get(speaker.get('source_id'), {})
+            audio = source.get('audio_path')
+            if not clips or not audio:
+                skipped[key] = 'insufficient_reliable_audio'; continue
+            try:
+                session.check_hash(audio, source.get('audio_sha256'))
+                result[key] = extract_vector(audio, clips, session)
+            except (OSError, ValueError, RuntimeError, ImportError, subprocess.SubprocessError, wave.Error) as error:
+                skipped[key] = 'Local voiceprint unavailable: ' + str(error)
     return result, skipped
 
 
@@ -321,13 +364,25 @@ def match_workspace(root, state=None):
     if not status()['enabled']:
         return {'enabled': False, 'matches': {}, 'reason': status()['reason']}
     known = confirmed_profiles(state)
-    library = {pid: value for pid, value in read_library()['profiles'].items() if pid in known}
+    try:
+        library = {pid: value for pid, value in read_library()['profiles'].items() if pid in known} if known else {}
+    except (ValueError, OSError) as error:
+        for speaker in state['speakers']:
+            if not speaker.get('role_confirmed') and speaker.get('role_source') == 'voice_match':
+                for field in ('role_source', 'voice_profile_id', 'voice_similarity', 'display_name', 'role_name'):
+                    speaker.pop(field, None)
+        return {'enabled': True, 'matches': {}, 'reason': 'voice_library_unavailable', 'error': str(error),
+                'skipped': {s['key']: str(error) for s in state['speakers'] if not s.get('role_confirmed')}}
     keys = {s['key'] for s in state['speakers'] if not s.get('role_confirmed') and not s.get('ignored_by_user')}
     vectors, skipped = speaker_vectors(root, state, keys) if library else ({}, {})
-    reserved = {s.get('identity_group') for s in state['speakers'] if s.get('role_confirmed')}
     if not status()['enabled']:
         return {'enabled': False, 'matches': {}, 'reason': 'disabled_during_match'}
-    matches = choose_matches(vectors, library, reserved)
+    matches = {}
+    for source_id in {s.get('source_id') for s in state['speakers']}:
+        group = [s for s in state['speakers'] if s.get('source_id') == source_id]
+        reserved = {s.get('identity_group') for s in group if s.get('role_confirmed')}
+        group_vectors = {s['key']: vectors[s['key']] for s in group if s['key'] in vectors}
+        matches.update(choose_matches(group_vectors, library, reserved))
     for speaker in state['speakers']:
         if speaker['key'] not in keys:
             continue

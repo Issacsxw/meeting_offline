@@ -202,13 +202,16 @@ function renameSpeakerDocument(data,key,name){
  const result=JSON.parse(JSON.stringify(data)),rows=result.speakers||[],target=rows.find(s=>s.key===key);
  if(!target||key.endsWith('-UNASSIGNED'))throw Error('未知或未分离的说话人');
  name=String(name).trim();if(!name||name.length>100||/[\x00-\x1f]/.test(name))throw Error('请填写有效姓名（最多100字）');
+ if(name.startsWith('身份未确认')||name==='说话人未分离'||/^说话人\s*\S+/.test(name)||rows.some(s=>s.key===name))throw Error('请填写实际姓名，不能使用代号或未确认标签');
  if(rows.some(s=>s.key!==key&&s.name===name))throw Error('此姓名已用于其他说话人，请补充区分信息');
  const aliases=new Map();for(const s of rows)for(const a of new Set([s.key,s.name])){if(!a)continue;if(!aliases.has(a))aliases.set(a,s.key);else if(aliases.get(a)!==s.key)aliases.set(a,null)}
  const tokens=[...aliases.keys()].sort((a,b)=>b.length-a.length);
- const replace=value=>{value=String(value||'');let out='',i=0;while(i<value.length){const alias=tokens.find(a=>value.startsWith(a,i)&&(!/[A-Za-z0-9_]/.test(a[0])||i===0||!/[A-Za-z0-9_]/.test(value[i-1]))&&(!/[A-Za-z0-9_]/.test(a[a.length-1])||i+a.length===value.length||!/[A-Za-z0-9_]/.test(value[i+a.length])));if(alias){out+=aliases.get(alias)===key?name:alias;i+=alias.length}else out+=value[i++]}return out};
- for(const field of ['participants','summary','topic'])result[field]=replace(result[field]);
- for(const p of result.points||[]){p.title=replace(p.title);p.text=replace(p.text)}
- for(const t of result.todos||[]){t.task=replace(t.task);t.owner=t.owner_key===key?name:replace(t.owner)}
+ const replace=value=>{value=String(value||'');let out='',i=0;while(i<value.length){const alias=tokens.find(a=>value.startsWith(a,i));if(alias){const code=/^[^\s]+-[A-Z]+$/.test(alias)||/^说话人\s+\S+$/.test(alias),word=code?/[A-Za-z0-9_]/:/[\p{L}\p{N}_]/u,before=i?value[i-1]:'',after=value[i+alias.length]||'',safe=(code||[...alias].length>=2)&&(!before||!word.test(before))&&(!after||!word.test(after));out+=safe&&aliases.get(alias)===key?name:alias;i+=alias.length}else out+=value[i++]}return out};
+ const exact=value=>aliases.get(String(value))===key?name:replace(value);
+ result.participants=String(result.participants||'').split('、').map(exact).join('、');
+ for(const field of ['summary','topic'])result[field]=replace(result[field]);
+ for(const p of result.points||[]){p.title=exact(p.title);p.text=replace(p.text)}
+ for(const t of result.todos||[]){t.task=replace(t.task);t.owner=t.owner_key===key?name:exact(t.owner)}
  target.name=name;target.role_confirmed=true;target.role_source='user';return result;
 }
 function renderSpeakerPanel(){
@@ -216,7 +219,7 @@ function renderSpeakerPanel(){
  $('#speaker-rows').replaceChildren(...speakerRows.map(s=>{const row=element('div',undefined,'speaker-row'),label=element('span',s.key),input=element('input');input.value=s.name;input.setAttribute('aria-label',s.key+' 姓名');
  const button=element('button',s.role_confirmed?'保存姓名':'确认 / 保存姓名','secondary');
  if(s.role_source==='voice_match'&&!s.role_confirmed){const badge=element('span','待确认','voice-pending');badge.title='声纹自动识别，尚未经用户确认';row.append(badge)}
- button.onclick=()=>{try{const data=renameSpeakerDocument({...collect(),speakers:speakerRows},s.key,input.value);speakerRows=data.speakers;speakerEdits.mappings=speakerEdits.mappings.filter(m=>m.key!==s.key);speakerEdits.mappings.push({key:s.key,name:input.value.trim()});render(data);renderSpeakerPanel();changed()}catch(error){status(error.message)}};
+ button.onclick=()=>{try{if(input.value.trim()===s.name&&(s.name==='身份未确认'||s.name.startsWith('身份未确认（')||/^说话人/.test(s.name)||speakerRows.some(r=>r.key===s.name))){status('代号未改，未登记身份确认');return}const data=renameSpeakerDocument({...collect(),speakers:speakerRows},s.key,input.value);speakerRows=data.speakers;speakerEdits.mappings=speakerEdits.mappings.filter(m=>m.key!==s.key);speakerEdits.mappings.push({key:s.key,name:input.value.trim()});render(data);renderSpeakerPanel();changed()}catch(error){status(error.message)}};
  row.append(label,input,button);return row}));
 }
 function renderAuditWarning(){const issues=seed.audit_issues||[];const box=$('#audit-warning');box.replaceChildren();box.hidden=!issues.length;if(issues.length){box.append(element('strong','这几处和原话对不上，请核对'));const list=element('ul');for(const issue of issues)list.append(element('li',[issue.where,issue.detail||issue.claim].filter(Boolean).join('：')));box.append(list)}}

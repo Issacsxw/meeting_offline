@@ -299,7 +299,8 @@ def check_claim(sid, where, claim, refs, texts, names=(), allowed_names=(), stat
     evidence = set().union(*(facts(t) for t in said)) if said else set()
     for fact in sorted(facts(claim)):
         if not supported(fact, evidence):
-            problems.append(issue(sid, where, 'fact', claim, f'{LABEL[fact[0]]}“{pretty(fact)}”在引用原话里找不到', refs))
+            problems.append({**issue(sid, where, 'fact', claim, f'{LABEL[fact[0]]}“{pretty(fact)}”在引用原话里找不到', refs),
+                             'fact': list(fact), 'evidence_texts': said})
     joined = '\n'.join(said)
     for name in names:
         if name and name in claim and name not in joined and name not in allowed_names:
@@ -335,7 +336,7 @@ def audit(root):
         texts = [w.corrected_text(s['text'], sid, i, corrections, protected) for i, s in enumerate(segments)]
         speakers = {s['key']: s for s in state['speakers'] if s['source_id'] == sid}
         names = sorted({(s.get('display_name') or (s.get('role_name') or '').split('｜')[0]) for s in speakers.values()
-                        if s.get('role_confirmed') and s.get('identity_group')} - {''}, key=len, reverse=True)
+                        if (s.get('role_confirmed') and s.get('identity_group')) or s.get('role_source') == 'voice_match'} - {''}, key=len, reverse=True)
         name_of = lambda key: (speakers[key].get('display_name') or (speakers[key].get('role_name') or '').split('｜')[0]) if key in speakers else ''
         reader = section.get('reader', {})
         if reader.get('summary'):
@@ -363,7 +364,56 @@ def audit(root):
     return problems
 
 
-RESOLUTIONS = {'fixed': '已改正文', 'user_confirmed': '用户确认无误'}
+RESOLUTIONS = {'fixed': '已改正文', 'supported': '机械核验同值换算', 'user_confirmed': '用户确认无误'}
+
+
+def resolution_valid(problem, resolution):
+    """Validate a saved resolution against current source text, never its explanatory note.
+
+    supported is limited to numeric/date/percentage equivalence; it cannot approve
+    identity, negation, decision status, or infer semantic agreement. Added evidence
+    fields do not change issue IDs, so safe old resolutions remain usable.
+    """
+    if not isinstance(resolution, dict):
+        return False
+    if resolution.get('resolution') == 'user_confirmed':
+        return True
+    if resolution.get('resolution') != 'supported' or problem.get('kind') not in ('fact', 'deadline'):
+        return False
+    texts = problem.get('evidence_texts')
+    if not isinstance(texts, list) or not texts or any(not isinstance(t, str) for t in texts):
+        return False
+    claim = problem.get('claim', '')
+    if not isinstance(claim, str):
+        return False
+    # The general detector deliberately tolerates approximate/colloquial values.
+    # Those shortcuts cannot authorize an override: fail closed on such language.
+    if any(re.search(r'约|大概|左右|多|[五六七八九][六七八九十]十|\d{13}|\.\d{5}|点[零〇一二三四五六七八九]{5}', t) for t in [claim] + texts):
+        return False
+    claimed = facts(claim)
+    evidence = set().union(*(facts(t) for t in texts))
+    allowed = {'number', 'percent', 'date', 'day', 'year'}
+    if not claimed or any(kind not in allowed for kind, value in claimed):
+        return False
+    for fact in claimed:
+        kind, value = fact
+        if fact in evidence:
+            continue
+        if kind == 'date' and ('day', value.split('-')[1]) in evidence:
+            # Do not ignore a contradictory explicit month in the source.
+            if any(k == 'date' and v != value for k, v in evidence):
+                return False
+            continue
+        if kind == 'day' and any(k == 'date' and v.endswith('-' + value) for k, v in evidence):
+            continue
+        return False
+    # Equal digits do not make incompatible units equal (229 days vs 229 yuan).
+    units = re.compile(r'美元|人民币|元|块|天|小时|分钟|台|件|个人|人|倍')
+    claim_units = set(units.findall(claim)); source_units = set(units.findall(' '.join(texts)))
+    canonical = lambda values: {'元' if v in ('块', '人民币') else v for v in values}
+    if claim_units and source_units and not canonical(claim_units).issubset(canonical(source_units)):
+        return False
+    return True
 
 
 def report(root):
@@ -372,8 +422,9 @@ def report(root):
     root = Path(root)
     latest = w.read(root / 'exports/latest.json')
     saved = w.read(root / 'semantic_review.json') if (root / 'semantic_review.json').exists() else {}
-    settled = {k: v for k, v in saved.get('resolutions', {}).items() if v.get('resolution') == 'user_confirmed'}
     problems = audit(root)
+    by_id = {p['id']: p for p in problems}
+    settled = {k: v for k, v in saved.get('resolutions', {}).items() if k in by_id and resolution_valid(by_id[k], v)}
     open_ = [p for p in problems if p['id'] not in settled]
     return {'version': latest['version'], 'checked': not problems or (not open_ and saved.get('version') == latest['version']),
             'unresolved': len(open_), 'issues': [{**p, 'resolution': settled.get(p['id'])} for p in problems]}
@@ -390,14 +441,14 @@ def resolve(root, resolutions, expected):
             raise ValueError('导出不是最新版本；请先运行 export。')
         problems = {p['id']: p for p in audit(root)}
         saved = w.read(root / 'semantic_review.json') if (root / 'semantic_review.json').exists() else {}
-        settled = {k: v for k, v in saved.get('resolutions', {}).items() if k in problems and v.get('resolution') == 'user_confirmed'}  # carry over what still applies
+        settled = {k: v for k, v in saved.get('resolutions', {}).items() if k in problems and resolution_valid(problems[k], v)}  # carry over what still applies
         if not isinstance(resolutions, dict):
             raise ValueError('确认结果应是 {问题 id: {resolution, note}}。')
         for key, value in resolutions.items():
             if key not in problems:
                 raise ValueError(f'问题 {key} 已不存在（可能正文已改）；请重新运行 audit。')
-            if not isinstance(value, dict) or value.get('resolution') != 'user_confirmed':
-                raise ValueError(f'{key}: resolution 只能是 user_confirmed（用户明确确认）；AI 不能批准不一致；'
+            if not resolution_valid(problems[key], value):
+                raise ValueError(f'{key}: resolution 需 user_confirmed，或机械核验通过的 supported 同值换算；AI 不能批准不一致；'
                                  '改了正文的问题会自动消失，不需要登记。')
             note = str(value.get('note', '')).strip()
             if not note:
@@ -425,4 +476,4 @@ def is_checked(root):
     if not (root / 'semantic_review.json').exists():
         return False
     saved, latest = w.read(root / 'semantic_review.json'), w.read(root / 'exports/latest.json')
-    return saved.get('version') == latest['version'] and all(saved.get('resolutions', {}).get(p['id'], {}).get('resolution') == 'user_confirmed' for p in problems)
+    return saved.get('version') == latest['version'] and all(resolution_valid(p, saved.get('resolutions', {}).get(p['id'])) for p in problems)

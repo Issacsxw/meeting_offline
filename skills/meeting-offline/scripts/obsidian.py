@@ -67,13 +67,16 @@ def discover():
 def write_preference(update):
     current = device_context.paths()
     path = current['preferences']
-    data = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {
-        'schema_version': 1, 'device_id': current['device_id']}
-    device_context.require_device(data.get('device_id'), path)
-    # Keep settings written before the rename under 'meeting_minutes'; newer keys win.
-    legacy = data.pop('meeting_minutes', None)
-    data['meeting_offline'] = {**(legacy if isinstance(legacy, dict) else {}), **(data.get('meeting_offline') or {}), **update}
-    device_context.atomic_json(path, data)
+    from file_lock import locked_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with locked_file(path.with_suffix('.lock')):
+        data = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {
+            'schema_version': 1, 'device_id': current['device_id']}
+        device_context.require_device(data.get('device_id'), path)
+        # Keep settings written before the rename under 'meeting_minutes'; newer keys win.
+        legacy = data.pop('meeting_minutes', None)
+        data['meeting_offline'] = {**(legacy if isinstance(legacy, dict) else {}), **(data.get('meeting_offline') or {}), **update}
+        device_context.atomic_json(path, data)
 
 
 def use(vault, folder='会议纪要'):

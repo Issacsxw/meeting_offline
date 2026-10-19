@@ -125,5 +125,62 @@ class AuditFlowTests(unittest.TestCase):
         self.assertIn('"status": "decided"', Path(files['html']).read_text(encoding='utf-8'))
 
 
+    def test_pending_voice_name_cannot_be_attributed_to_another_speaker(self):
+        state = w.read(self.root / 'state.json')
+        state['speakers'][1].update(role_confirmed=False, identity_group=None, role_source='voice_match')
+        w.write(self.root / 'state.json', state)
+        analysis = {'sources': {'m': {'reader': {'points': [{'title': '分工', 'text': '陈思远负责渠道',
+                    'evidence': [0], 'attribution': ['m-A'], 'status': 'open'}]}}}}
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertIn('name', [p['kind'] for p in audit.audit(self.root)])
+        analysis['sources']['m']['reader']['points'][0]['attribution'] = ['m-B']
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertNotIn('name', [p['kind'] for p in audit.audit(self.root)])
+
+    def test_legacy_mechanical_supported_resolution_remains_checked(self):
+        problem = {'id': 'legacy', 'kind': 'fact', 'claim': '预算229元',
+                   'evidence_texts': ['预算二百二十九'], 'source_id': 'm'}
+        latest = w.read(self.root / 'exports/latest.json')
+        saved = {'version': latest['version'], 'resolutions': {'legacy':
+                 {'resolution': 'supported', 'note': '二百二十九即229'}}}
+        w.write(self.root / 'semantic_review.json', saved)
+        with mock.patch.object(audit, 'audit', return_value=[problem]):
+            self.assertTrue(audit.is_checked(self.root))
+            self.assertEqual(audit.report(self.root)['unresolved'], 0)
+            record = audit.resolve(self.root, {}, self.revision())
+            self.assertEqual(record['status'], 'checked')
+            self.assertTrue(audit.is_checked(self.root))
+        problem['evidence_texts'] = ['预算199元']
+        with mock.patch.object(audit, 'audit', return_value=[problem]):
+            self.assertFalse(audit.is_checked(self.root))
+            self.assertEqual(audit.report(self.root)['unresolved'], 1)
+            with self.assertRaisesRegex(ValueError, '机械核验'):
+                audit.resolve(self.root, saved['resolutions'], self.revision())
+
+
+class MechanicalResolutionTests(unittest.TestCase):
+    def valid(self, claim, said, kind='fact', note='AI认为没问题'):
+        return audit.resolution_valid({'kind': kind, 'claim': claim, 'evidence_texts': [said]},
+                                      {'resolution': 'supported', 'note': note})
+
+    def test_only_same_value_conversions_pass(self):
+        for claim, said in [('229元', '二百二十九'), ('10月16日', '十六号'), ('30%', '三成'),
+                            ('16号', '十月十六号')]:
+            self.assertTrue(self.valid(claim, said), (claim, said))
+        for claim, said in [('199元', '二百二十九'), ('10月17日', '十六号'), ('40%', '三成'),
+                            ('229元', '229天'), ('229美元', '229元'), ('100元', '一百多元'),
+                            ('229.00001元', '229元'),
+                            ('2027年', '明年'), ('15:00', '三个人'), ('10月16日', '11月16日十六号')]:
+            self.assertFalse(self.valid(claim, said), (claim, said))
+
+    def test_semantic_kinds_or_fabricated_note_never_authorize(self):
+        for kind in ('name', 'negation', 'status', 'other'):
+            self.assertFalse(self.valid('229元', '二百二十九', kind))
+        self.assertFalse(self.valid('199元', '229元', note='用户说数字等价'))
+        self.assertFalse(audit.resolution_valid({'kind': 'fact', 'claim': '229元'},
+                                               {'resolution': 'supported', 'note': '二百二十九'}))
+        self.assertTrue(audit.resolution_valid({'kind': 'name'}, {'resolution': 'user_confirmed'}))
+
+
 if __name__ == '__main__':
     unittest.main()

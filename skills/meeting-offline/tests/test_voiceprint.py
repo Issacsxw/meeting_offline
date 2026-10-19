@@ -10,6 +10,7 @@ import tempfile
 import struct
 import types
 import wave
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -75,10 +76,127 @@ class VoiceprintTests(unittest.TestCase):
         self.assertEqual({}, v.choose_matches({'m-A': [.7, .7]}, profiles))
         self.assertEqual({}, v.choose_matches({'m-A': [.79, -math.sqrt(1-.79**2)]}, profiles))
         matches = v.choose_matches({'m-A': [1., 0.], 'm-B': [.99, .01]}, profiles)
-        self.assertEqual(['m-A'], list(matches))
+        self.assertEqual({}, matches)
         self.assertEqual({}, v.choose_matches({'m-A': [1., 0.]}, profiles, {'a'}))
         close = {'a': {'vector': [1., 0.]}, 'b': {'vector': [.99, .01]}}
         self.assertEqual({}, v.choose_matches({'m-A': [1., 0.]}, close))
+
+    def test_numeric_scale_and_margin_boundary(self):
+        self.assertAlmostEqual(1 / math.sqrt(2), v.normalize([1e308, 1e308])[0])
+        self.assertEqual([1., 0.], v.normalize([1e-308, 0.]))
+        with patch('voiceprint.cosine', side_effect=[.9, .8]):
+            self.assertIn('m-A', v.choose_matches({'m-A': [1, 0]},
+                          {'a': {'vector': [1, 0]}, 'b': {'vector': [0, 1]}}))
+
+    def test_sources_match_independently_and_reservations_are_local(self):
+        self.seed()
+        second = self.speaker('n-A', 0, 12000); second['source_id'] = 'n'
+        self.state['speakers'].append(second)
+        self.state['sources'].append(dict(self.state['sources'][0], source_id='n'))
+        with patch('voiceprint.extract_vector', return_value=[1., 0.]):
+            self.assertEqual({'m-A', 'n-A'}, set(v.match_workspace(self.root, self.state)['matches']))
+            self.state['speakers'][0].update(role_confirmed=True, identity_group='person-a')
+            self.assertEqual({'n-A'}, set(v.match_workspace(self.root, self.state)['matches']))
+
+    def test_corrupt_library_falls_back_without_replacing_file(self):
+        self.seed()
+        for raw in ('{broken', '[]', '{}'):
+            v.location().write_text(raw)
+            with self.assertRaises(ValueError): v.read_library()
+            result = v.match_workspace(self.root, self.state)
+            self.assertEqual('voice_library_unavailable', result['reason'])
+            self.assertEqual({}, result['matches'])
+            self.assertIn('m-A', result['skipped'])
+            self.assertEqual(raw, v.location().read_text())
+
+    def test_initialize_survives_corrupt_voice_library(self):
+        import workspace
+        self.seed(); v.location().write_text('{broken')
+        transcript = Path(self.tmp.name) / 'transcript.json'
+        transcript.write_text(json.dumps({'segments': [{'speaker': 'A', 'text': '合成测试',
+                                                        'start_ms': 0, 'end_ms': 12000}]}))
+        state = copy.deepcopy(self.state)
+        state['sources'][0]['path'] = str(transcript)
+        initial = Path(self.tmp.name) / 'input.json'; initial.write_text(json.dumps(state))
+        with patch.object(workspace, 'snapshot'), patch.object(workspace, 'export'):
+            workspace.initialize(initial, self.root, {'m': self.audio})
+        saved = json.loads((self.root / 'state.json').read_text())
+        self.assertTrue(saved['voiceprint_match']['enabled'])
+        self.assertEqual('voice_library_unavailable', saved['voiceprint_match']['reason'])
+        self.assertTrue(saved['voiceprint_match']['error'])
+        self.assertTrue((self.root / 'manifest.json').is_file())
+        self.assertEqual('{broken', v.location().read_text())
+
+    def test_no_confirmed_profiles_does_not_read_voice_library(self):
+        v.enable(True)
+        with patch('voiceprint.read_library', side_effect=AssertionError('must not read')):
+            self.assertEqual({}, v.match_workspace(self.root, self.state)['matches'])
+
+    def test_preference_writer_shares_lock_and_merges_legacy(self):
+        import obsidian
+        from contextlib import nullcontext
+        path = device_context.paths()['preferences']
+        v.atomic_write(path, {'device_id': device_context.device_id(),
+            'meeting_minutes': {'theme': 'old', 'layout': 'cards'},
+            'meeting_offline': {'theme': 'new'}})
+        with patch('file_lock.locked_file', return_value=nullcontext()) as lock:
+            v.enable(True)
+            obsidian.write_preference({'obsidian': {'declined': True}})
+        self.assertEqual([((path.with_suffix('.lock'),), {}),
+                          ((path.with_suffix('.lock'),), {})], lock.call_args_list)
+        settings = device_context.minutes_preferences()
+        self.assertEqual('new', settings['theme']); self.assertEqual('cards', settings['layout'])
+        self.assertTrue(settings['voiceprint']['enabled']); self.assertTrue(settings['obsidian']['declined'])
+
+    def test_concurrent_preferences_preserve_both_updates(self):
+        import obsidian
+        v.enable(True)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(v.set_preference, {'enabled': True, 'consented_at': 'test'}),
+                       pool.submit(obsidian.write_preference, {'obsidian': {'declined': True}})]
+            for future in futures: future.result()
+        settings = device_context.minutes_preferences()
+        self.assertTrue(settings['voiceprint']['enabled'])
+        self.assertTrue(settings['obsidian']['declined'])
+
+    def test_batch_hash_decode_and_engine_are_cached(self):
+        v.enable(True)
+        v.model_path().parent.mkdir(parents=True, exist_ok=True)
+        v.model_path().write_bytes(b'synthetic model')
+        with wave.open(str(self.audio), 'wb') as handle:
+            handle.setnchannels(1); handle.setsampwidth(2); handle.setframerate(16000)
+            handle.writeframes(b'\x01\x00' * (24 * 16000))
+        self.state['sources'][0]['audio_sha256'] = hashlib.sha256(self.audio.read_bytes()).hexdigest()
+        self.state['speakers'].append(self.speaker('m-B', 12000, 24000))
+        class Stream:
+            def accept_waveform(self, rate, samples): pass
+            def input_finished(self): pass
+        class Extractor:
+            def __init__(self, config): pass
+            def create_stream(self): return Stream()
+            def is_ready(self, stream): return True
+            def compute(self, stream): return [1., 0.]
+        from unittest.mock import Mock
+        constructor = Mock(side_effect=Extractor)
+        stub = types.SimpleNamespace(__spec__=importlib.machinery.ModuleSpec('sherpa_onnx', loader=None),
+            SpeakerEmbeddingExtractorConfig=lambda **kwargs: kwargs, SpeakerEmbeddingExtractor=constructor)
+        with patch.dict(sys.modules, {'sherpa_onnx': stub}), \
+             patch('transcribe_local.to_wav', return_value=self.audio) as decode, \
+             patch('voiceprint.hashlib.sha256', wraps=hashlib.sha256) as digest:
+            vectors, skipped = v.speaker_vectors(self.root, self.state)
+        self.assertEqual({'m-A', 'm-B'}, set(vectors)); self.assertEqual({}, skipped)
+        constructor.assert_called_once(); decode.assert_called_once()
+        # Device ID hashing also uses hashlib: audio hashing alone has no initial argument.
+        self.assertEqual(1, sum(not call.args and not call.kwargs for call in digest.call_args_list))
+
+    def test_codec_error_explains_ffmpeg_or_pcm(self):
+        with v.ExtractionSession() as session, patch('voiceprint.shutil.which', return_value=None):
+            with self.assertRaisesRegex(ValueError, 'Install ffmpeg'):
+                session.decode(Path(self.tmp.name) / 'sample.m4a')
+        v.enable(True)
+        with v.ExtractionSession() as session, patch.object(session, 'engine', return_value=object()):
+            with self.assertRaisesRegex(ValueError, 'PCM WAV'):
+                v.extract_vector(self.audio, [(0., 12.)], session)
 
     def test_unassigned_excluded_in_all_paths(self):
         speaker = self.speaker('m-UNASSIGNED', 0, 20000)

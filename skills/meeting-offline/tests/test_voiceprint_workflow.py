@@ -105,7 +105,7 @@ class VoiceprintWorkflowTests(unittest.TestCase):
         w.write(self.root / 'state.json', state)
         with self.assertRaisesRegex(ValueError, '未分离'):
             w.import_html(self.root, self.html(self.payload([{'key': 'm-UNASSIGNED', 'name': '姓名'}])), self.revision())
-        self.assertEqual(minutes_html.shown_name(state['speakers'][0]), '说话人未分离')
+        self.assertEqual(minutes_html.shown_name(state['speakers'][0]), '林悦')
 
     def test_default_off_alias_full_html_and_confirmation_fallbacks(self):
         self.pending(matched=False)
@@ -161,14 +161,141 @@ class VoiceprintWorkflowTests(unittest.TestCase):
                 label = minutes_html.shown_name(speaker)
                 before = (self.root / 'state.json').read_bytes()
                 with mock.patch.object(w, 'confirmed_memory_upsert') as upsert, mock.patch.object(voiceprint, 'enroll_confirmed') as enroll:
-                    with self.assertRaises(ValueError):
-                        w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': label}])), self.revision())
+                    result = w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': label}])), self.revision())
+                    self.assertEqual(result['imported'], 0)
                     upsert.assert_not_called(); enroll.assert_not_called()
                 self.assertEqual((self.root / 'state.json').read_bytes(), before)
                 with mock.patch.object(voiceprint, 'enroll_confirmed'):
                     w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '用户填写的姓名'}])), self.revision())
                 self.assertEqual(self.state()['speakers'][0]['display_name'], '用户填写的姓名')
                 self.assertTrue(self.state()['speakers'][0]['role_confirmed'])
+
+    def test_ambiguous_old_names_preserve_prose_but_unique_key_can_sync(self):
+        state = self.state()
+        for speaker in state['speakers']:
+            speaker.update(role_name='林悦', display_name='林悦')
+        w.write(self.root / 'state.json', state)
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['summary'] = '林悦：提供报价。m-A：准备材料。'
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+        self.assertEqual(w.read(self.root / 'analysis.json')['sources']['m']['reader']['summary'], '林悦：提供报价。张三：准备材料。')
+        files = w.read(self.root / 'exports/latest.json')['files']['m']
+        self.assertNotIn('html', files); self.assertIn('reader_error', files)
+
+    def test_fallback_core_points_and_source_title_sync_without_old_name_leak(self):
+        state = self.state()
+        state['speakers'][0]['core_points'] = [{'text': '林悦：报价。'}, '林悦：材料。']
+        w.write(self.root / 'state.json', state)
+        analysis = self.analysis()
+        analysis['sources']['m']['title'] = '林悦：例会'
+        analysis['sources']['m']['reader'] = {'points': []}
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+        self.assertEqual(self.state()['speakers'][0]['core_points'], [{'text': '张三：报价。'}, '张三：材料。'])
+        self.assertEqual(w.read(self.root / 'analysis.json')['sources']['m']['title'], '张三：例会')
+        files = w.read(self.root / 'exports/latest.json')['files']['m']
+        parser = SeedParser(); parser.feed(Path(files['html']).read_text())
+        document = json.loads(parser.seed)
+        self.assertNotIn('林悦', json.dumps(document, ensure_ascii=False))
+        self.assertIn('张三：报价。', document['points'][0]['text'])
+
+    def test_voice_match_in_one_recording_does_not_unlock_another(self):
+        state = self.pending(matched=False)
+        source = copy.deepcopy(state['sources'][0]); source['source_id'] = 'n'
+        state['sources'].append(source)
+        other = copy.deepcopy(state['speakers'])
+        for speaker in other:
+            speaker['source_id'] = 'n'; speaker['key'] = speaker['key'].replace('m-', 'n-')
+        state['speakers'].extend(other)
+        state['speakers'][0]['role_source'] = 'voice_match'
+        w.write(self.root / 'state.json', state)
+        analysis = self.analysis()
+        analysis['sources']['n'] = copy.deepcopy(analysis['sources']['m'])
+        analysis['sources']['n']['actions'][0]['owner'] = 'n-A'
+        with mock.patch.object(device_context, 'sandbox', return_value=False), mock.patch.object(device_context, 'minutes_preferences', return_value={'voiceprint': {'enabled': True}}):
+            self.assertFalse(w.requires_role_review(state, 'm'))
+            self.assertTrue(w.requires_role_review(state, 'n'))
+            w.set_analysis(self.root, analysis, self.revision())
+        files = w.read(self.root / 'exports/latest.json')['files']
+        self.assertIn('html', files['m']); self.assertNotIn('html', files['n'])
+
+    def test_malformed_later_mapping_and_skipped_name_collision_do_not_write(self):
+        state = self.pending()
+        state['speakers'][1].pop('identity_group', None)
+        state['speakers'][1].pop('voice_profile_id', None)
+        w.write(self.root / 'state.json', state)
+        before = (self.root / 'state.json').read_bytes()
+        cases = [[{'key': 'm-A', 'name': '新名字'}, None],
+                 [{'key': 'm-A', 'name': '陈思远'}, {'key': 'm-B', 'name': '陈思远'}]]
+        with mock.patch.object(w, 'confirmed_memory_upsert') as upsert, mock.patch.object(voiceprint, 'enroll_confirmed') as enroll:
+            for mappings in cases:
+                with self.subTest(mappings=mappings), self.assertRaises(ValueError):
+                    w.import_html(self.root, self.html(self.payload(mappings)), self.revision())
+            upsert.assert_not_called(); enroll.assert_not_called()
+        self.assertEqual((self.root / 'state.json').read_bytes(), before)
+
+    def test_explicit_single_speaker_confirmation_restores_owner_but_never_voiceprint(self):
+        w.set_analysis(self.root, {'sources': {}}, self.revision())
+        state = self.state()
+        speaker = state['speakers'][0]
+        speaker.update(key='m-UNASSIGNED', diarization_unassigned=True, role_confirmed=False,
+                       identity_group=None, role_name='', display_name=None)
+        w.write(self.root / 'state.json', state)
+        with mock.patch.object(voiceprint, 'status', return_value={'enabled': True}), mock.patch.object(voiceprint, 'speaker_vectors', return_value=({}, {})) as vectors:
+            w.save_roles(self.root, [{'key': 'm-UNASSIGNED', 'name': '林悦', 'entity_type': 'person',
+                                     'confirm_single_speaker': True}], self.revision())
+        self.assertEqual(vectors.call_args.args[2], set())
+        analysis = self.analysis()
+        analysis['sources']['m']['actions'][0]['owner'] = 'm-UNASSIGNED'
+        w.set_analysis(self.root, analysis, self.revision())
+        files = w.read(self.root / 'exports/latest.json')['files']['m']
+        parser = SeedParser(); parser.feed(Path(files['html']).read_text())
+        document = json.loads(parser.seed)
+        self.assertIn('林悦', document['participants'])
+        self.assertEqual(document['todos'][0]['owner'], '林悦')
+        self.assertFalse(any(row['key'] == 'm-UNASSIGNED' for row in document['speakers']))
+
+    def test_html_reserved_labels_and_same_batch_collision_are_rejected(self):
+        for label in ('身份未确认', '说话人未分离', '说话人 X', '说话人ABC', 'm-B'):
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': label}])), self.revision())
+        with self.assertRaisesRegex(ValueError, '同一个名字'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '同名'}, {'key': 'm-B', 'name': '同名'}])), self.revision())
+
+    def test_html_rename_syncs_bounded_prose_and_records_html_confirmation(self):
+        analysis = self.analysis()
+        reader = analysis['sources']['m']['reader']
+        reader['summary'] = '林悦：提供报价。'
+        reader['points'][0]['title'] = '林悦'
+        reader['points'][0]['text'] = '林悦：提供报价。'
+        reader['todos'][0]['task'] = '林悦：提供报价。'
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+        reader = w.read(self.root / 'analysis.json')['sources']['m']['reader']
+        self.assertEqual(reader['summary'], '张三：提供报价。')
+        self.assertEqual(reader['points'][0]['title'], '张三')
+        self.assertEqual(reader['points'][0]['text'], '张三：提供报价。')
+        self.assertEqual(reader['todos'][0]['task'], '张三：提供报价。')
+        profile = next(p for p in w.read(Path(w.memory_path(self.state())))['roles'] if p['name'] == '张三')
+        self.assertIn('纪要网页', profile['confirmation'])
+        self.assertIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
+
+    def test_ambiguous_prose_is_preserved_and_blocks_full_html_until_reauthored(self):
+        analysis = self.analysis()
+        analysis['sources']['m']['reader']['summary'] = '林悦认为报价可行。'
+        w.set_analysis(self.root, analysis, self.revision())
+        with mock.patch.object(voiceprint, 'enroll_confirmed'):
+            w.import_html(self.root, self.html(self.payload([{'key': 'm-A', 'name': '张三'}])), self.revision())
+        self.assertEqual(w.read(self.root / 'analysis.json')['sources']['m']['reader']['summary'], '林悦认为报价可行。')
+        files = w.read(self.root / 'exports/latest.json')['files']['m']
+        self.assertNotIn('html', files); self.assertIn('reader_error', files)
+        analysis['sources']['m']['reader']['summary'] = '张三认为报价可行。'
+        w.set_analysis(self.root, analysis, self.revision())
+        self.assertIn('html', w.read(self.root / 'exports/latest.json')['files']['m'])
 
     def test_archive_rejects_direct_draft_and_forged_publication(self):
         latest = w.read(self.root / 'exports/latest.json')

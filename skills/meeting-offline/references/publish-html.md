@@ -64,7 +64,7 @@
 
 按现有 `workspace.py analysis --file ... --revision ...` 保存。`exports/latest.json.files.<source_id>.html` 指向新 HTML，`.png` 指向同时生成的图片。复核服务的 `/minutes/<source_id>?token=...` 可直接打开；导出入口仍可下载独立文件。用户离线打开下载的 HTML 也可编辑与导图。
 
-没有 `reader` 时，导出器保留完整已写观点与结论作为回退，不会自动压缩或删减。交付前仍需助手补齐 `reader`，确保简洁。
+没有 `reader` 或 `reader.points` 为空时，导出器保留完整已写观点与结论作为回退，不会自动压缩或删减。其中来自 `speaker.core_points` 的观点没有逐条证据，只能供预览，`publish` 会拒绝发布；先补全非空 `reader.points` 及每条的 `evidence`、状态，再运行核对。规则检查只覆盖其明示范围，仍须人工通读确认。
 
 ### 显示名偏好
 

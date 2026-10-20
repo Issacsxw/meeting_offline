@@ -63,6 +63,7 @@ def index_file(root):
 def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
             archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=(), _checked_workspace=False):
     audio = Path(audio).expanduser().absolute()
+    requested_audio = audio
     missing_audio = not audio.exists()
     if audio.is_symlink() or (not missing_audio and not audio.is_file()) or (missing_audio and not expected_hash):
         raise ValueError('录音必须是存在的普通文件：' + str(audio))
@@ -134,8 +135,10 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         if audio != destination:
             destination = unique_path(destination, audio_hash)
         manifest['audio_file'] = destination.name
-        if audio != destination:
-            manifest['move_source_path'] = str(audio)
+        if requested_audio != destination:
+            # Folder renames relocate the recording too; retain the caller's
+            # pre-rename path, including across a failed recovery retry.
+            manifest['move_source_path'] = str(requested_audio)
         # Write a recovery record before moving; never overwrite a different recording.
         w.write(target_folder / '.archive.json', manifest)
         index['recordings'][audio_hash] = {'folder': target_folder.name}

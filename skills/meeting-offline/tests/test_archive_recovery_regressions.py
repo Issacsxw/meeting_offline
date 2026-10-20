@@ -120,6 +120,27 @@ class ArchiveRecoveryTests(unittest.TestCase):
         archived.write_bytes(self.contents)
         self.assert_recovered()
 
+    def test_republish_rename_copy_failure_recovers_original_workspace_path(self):
+        first = self.collect()
+        old_audio = Path(first['audio'])
+        with patch.object(w.minutes_html, 'png_for', side_effect=fake_png):
+            revision = w.read(self.root / 'state.json')['revision']
+            w.set_analysis(self.root, {'sources': {'4': {'reader': {
+                'topic': '重新命名后的合成会议', 'points': [{'title': '报价', 'text': '提供报价。',
+                'evidence': [0], 'status': 'direction'}]}}}}, revision)
+            w.publish(self.root, ['4'])
+        self.audio = old_audio
+        manifest = self.checkpoint()
+        self.assertNotEqual(manifest.parent, Path(first['folder']))
+        self.assertEqual(w.read(manifest)['move_source_path'], str(old_audio))
+        self.assertFalse(Path(first['folder']).exists())
+        # The original pre-archive path must not be allowed to claim this new move.
+        with self.assertRaises(ValueError):
+            a.collect(w.read(manifest)['original_audio_path'], root=self.archive,
+                      expected_hash=self.checksum)
+        result = self.assert_recovered()
+        self.assertIn('重新命名后的合成会议', Path(result['html']).read_text())
+
     def test_missing_source_without_expected_hash_cannot_claim_archive(self):
         self.checkpoint()
         with self.assertRaises(ValueError):

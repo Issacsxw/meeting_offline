@@ -63,7 +63,8 @@ def index_file(root):
 def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
             archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=(), _checked_workspace=False):
     audio = Path(audio).expanduser().absolute()
-    if audio.is_symlink() or not audio.is_file():
+    missing_audio = not audio.exists()
+    if audio.is_symlink() or (not missing_audio and not audio.is_file()) or (missing_audio and not expected_hash):
         raise ValueError('录音必须是存在的普通文件：' + str(audio))
     # Voice Memos app-managed originals are read-only; use an exported local file.
     if '/Library/' in str(audio) and any(s in str(audio) for s in ('VoiceMemos', 'voicememos')):
@@ -80,7 +81,7 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
             documents[kind] = (path, w.file_digest(path))
     if html and not _checked_workspace and 'meeting-speaker-edits' in Path(html).read_text(encoding='utf-8'):
         raise ValueError('工作区纪要必须使用 --workspace --source 归档，以核验内容和发布状态。')
-    audio_hash = w.file_digest(audio)
+    audio_hash = expected_hash if missing_audio else w.file_digest(audio)
     if expected_hash and audio_hash != expected_hash:
         raise ValueError('录音校验值与工作区记录不一致；未移动文件。')
     root = Path(root).expanduser().resolve()
@@ -94,6 +95,21 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         previous = w.read(old_folder / '.archive.json') if old_folder and (old_folder / '.archive.json').exists() else {}
         if previous:
             device_context.require_device(previous.get('device_id'), root)
+        if missing_audio:
+            # Only reclaim a moved recording from a matching, verified checkpoint.
+            # A hash alone is not proof that this missing source belongs to that archive.
+            name = previous.get('audio_file')
+            recorded_source = previous.get('move_source_path', previous.get('original_audio_path'))
+            if (not old_folder or not isinstance(name, str) or not name or
+                    Path(name).name != name or name in ('.', '..') or
+                    previous.get('audio_sha256') != expected_hash or
+                    recorded_source != str(audio)):
+                raise ValueError('归档恢复记录与原录音不一致；未移动文件。')
+            recovered = old_folder / name
+            if (recovered.is_symlink() or not recovered.is_file() or
+                    w.file_digest(recovered) != expected_hash):
+                raise ValueError('归档恢复录音校验失败；未移动文件。')
+            audio = recovered
         topic = topic or previous.get('topic') or audio.stem
         meeting_date = meeting_date or previous.get('meeting_date')
         archive_date = checked_date(archive_date or previous.get('archive_date') or date.today().isoformat())
@@ -118,6 +134,8 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         if audio != destination:
             destination = unique_path(destination, audio_hash)
         manifest['audio_file'] = destination.name
+        if audio != destination:
+            manifest['move_source_path'] = str(audio)
         # Write a recovery record before moving; never overwrite a different recording.
         w.write(target_folder / '.archive.json', manifest)
         index['recordings'][audio_hash] = {'folder': target_folder.name}
@@ -137,8 +155,12 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
                         target = unique_path(target, checksum)
             if not target.exists() or w.file_digest(target) != checksum:
                 temporary = unique_path(target.with_name('.' + target.name + '.tmp'), checksum)
-                shutil.copy2(source, temporary)
-                temporary.replace(target)
+                try:
+                    shutil.copy2(source, temporary)
+                    temporary.replace(target)
+                finally:
+                    if temporary.exists():
+                        temporary.unlink()
             manifest['files'][kind] = {'name': target.name, 'generated_sha256': checksum}
         for kind in withdraw:
             # A deliverable that no longer holds (a stale 深度洞察) goes, unless the user edited it.

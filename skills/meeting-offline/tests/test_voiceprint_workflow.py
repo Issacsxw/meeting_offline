@@ -247,7 +247,7 @@ class VoiceprintWorkflowTests(unittest.TestCase):
         with mock.patch.object(voiceprint, 'status', return_value={'enabled': True}), mock.patch.object(voiceprint, 'speaker_vectors', return_value=({}, {})) as vectors:
             w.save_roles(self.root, [{'key': 'm-UNASSIGNED', 'name': '林悦', 'entity_type': 'person',
                                      'confirm_single_speaker': True}], self.revision())
-        self.assertEqual(vectors.call_args.args[2], set())
+        vectors.assert_not_called()
         analysis = self.analysis()
         analysis['sources']['m']['actions'][0]['owner'] = 'm-UNASSIGNED'
         w.set_analysis(self.root, analysis, self.revision())

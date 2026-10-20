@@ -332,7 +332,7 @@ def save_roles(root, mappings, expected, via='page'):
                     'confirmation': {'page': '用户在本地角色复核页明确选择具体人物并填写姓名。', 'html': '用户在纪要网页中修改并确认'}.get(via, '用户在对话中明确确认具体人物的姓名。')})
         import voiceprint
         try:
-            voiceprint.enroll_confirmed(root, state, [key for key, profile in resolved if profile is not None])
+            voiceprint.enroll_confirmed(root, state, [key for key, _ in resolved])
         except (ValueError, RuntimeError, OSError, ImportError) as error:
             state['voiceprint_enrollment_warning'] = str(error)
         change = {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'}

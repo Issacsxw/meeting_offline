@@ -275,6 +275,7 @@ def save_roles(root, mappings, expected, via='page'):
         old_speakers = deepcopy(speakers)
         resolved = []
         new_profiles = []
+        reconfirmed_profiles = []
         for mapping in mappings:
             if mapping['key'] not in speakers:
                 raise ValueError('Unknown speaker.')
@@ -290,6 +291,13 @@ def save_roles(root, mappings, expected, via='page'):
                 if profile_id not in profiles:
                     raise ValueError('Unknown/inactive profile.')
                 profile = profiles[profile_id]
+                if profile.get('confirmed_by_user') is not True or not profile.get('confirmation'):
+                    # A current explicit selection upgrades only this legacy profile.
+                    profile = {**profile, 'confirmation': ({
+                        'page': '用户在本地说话人复核页明确选择已有档案并保存：',
+                        'html': '用户在纪要网页中明确确认已有档案：'
+                    }.get(via, '用户在对话中明确确认已有档案：')) + mapping['key']}
+                    reconfirmed_profiles.append(profile)
             else:
                 name = str(mapping.get('name', '')).strip()
                 role = str(mapping.get('role_title', '')).strip()
@@ -322,6 +330,8 @@ def save_roles(root, mappings, expected, via='page'):
             validate_analysis(root, updated_analysis if updated_analysis is not None else read(root / 'analysis.json'), state=state)
         except ValueError as error:
             raise ValueError('角色更新与现有纪要归属冲突，尚未保存。请先修改相关负责人或提出者归属后重试：' + str(error)) from error
+        for profile in {p['id']: p for p in reconfirmed_profiles}.values():
+            confirmed_memory_upsert(memory_path(state), 'role', profile)
         for profile in new_profiles:
             confirmed_memory_upsert(memory_path(state), 'role', profile)
             if profile['entity_type'] == 'person':

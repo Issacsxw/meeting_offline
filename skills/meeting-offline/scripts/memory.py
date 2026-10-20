@@ -118,7 +118,7 @@ def main():
             else:
                 new_entry = dict(entry)
             new_entry.update({'confirmed_by_user': True, 'updated_at': now,
-                              'created_at': prior['created_at'] if prior else now,
+                              'created_at': prior.get('created_at', now) if prior else now,
                               'revision': prior.get('revision', 1) + 1 if prior else 1})
             new_entry.setdefault('active', True)
             data[bucket] = [e for e in data[bucket] if e['id'] != entry['id']] + [new_entry]

@@ -315,9 +315,9 @@ def save_roles(root, mappings, expected, via='page'):
                                display_name=profile['name'], identity_group=profile['id'], accepted_unknown=False)
             speaker['role_confirmed'] = True
             speaker['role_source'] = 'user'
-        updated_analysis = None
-        if via == 'html':
-            updated_analysis = sync_reader_names(root, state, old_speakers, [key for key, profile in resolved if profile is not None])
+        # Identity changes must update authored prose regardless of confirmation entry point.
+        # Include keep_unknown: withdrawing an identity must not leave publishable named prose.
+        updated_analysis = sync_reader_names(root, state, old_speakers, [key for key, _ in resolved])
         try:
             validate_analysis(root, updated_analysis if updated_analysis is not None else read(root / 'analysis.json'), state=state)
         except ValueError as error:

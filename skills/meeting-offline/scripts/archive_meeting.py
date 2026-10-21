@@ -2,6 +2,7 @@
 """Move a selected local recording and collect its deliverables (HTML, PNG, Markdown) into one folder."""
 from __future__ import annotations
 import argparse
+from copy import deepcopy
 from contextlib import contextmanager
 from datetime import date
 from file_lock import locked_file
@@ -60,6 +61,51 @@ def index_file(root):
     return root / '.archive-index.json'
 
 
+def rename_intent_file(root, audio_hash):
+    # Hash the key rather than accepting path characters in a supplied checksum.
+    return root / ('.archive-rename-' + w.digest([device_context.device_id(), audio_hash]) + '.json')
+
+
+def recover_rename(root, index, index_path, audio_hash, requested_audio):
+    """Recover only the exact durable rename intent, never guess from directory names."""
+    checkpoint = rename_intent_file(root, audio_hash)
+    if checkpoint.is_symlink():
+        raise ValueError('归档重命名恢复记录不安全。')
+    if not checkpoint.exists():
+        return
+    intent = w.read(checkpoint)
+    device_context.require_device(intent.get('device_id'), root)
+    if (intent.get('audio_sha256') != audio_hash or
+            intent.get('source_path') != str(requested_audio)):
+        raise ValueError('归档重命名恢复记录与来源不一致。')
+    old = managed_folder(root, intent['old_folder'])
+    new = managed_folder(root, intent['new_folder'])
+    name = intent.get('audio_file')
+    if not isinstance(name, str) or Path(name).name != name or name in ('', '.', '..'):
+        raise ValueError('归档重命名录音路径不安全。')
+    indexed = index['recordings'].get(audio_hash, {}).get('folder')
+    if indexed not in (old.name, new.name) or old == new or old.exists() == new.exists():
+        raise ValueError('归档重命名目录状态不一致。')
+    folder = old if old.exists() else new
+    manifest_path = folder / '.archive.json'
+    audio = folder / name
+    if (manifest_path.is_symlink() or not manifest_path.is_file() or
+            w.read(manifest_path) not in (intent['previous_manifest'], intent['next_manifest']) or
+            audio.is_symlink() or not audio.is_file() or w.file_digest(audio) != audio_hash):
+        raise ValueError('归档重命名恢复校验失败。')
+    for manifest in (intent['previous_manifest'], intent['next_manifest']):
+        device_context.require_device(manifest.get('device_id'), root)
+        if manifest.get('audio_sha256') != audio_hash or manifest.get('audio_file') != name:
+            raise ValueError('归档重命名恢复清单不一致。')
+    if intent['next_manifest'].get('move_source_path') != str(requested_audio):
+        raise ValueError('归档重命名恢复来源不一致。')
+    if folder == new:
+        w.write(manifest_path, intent['next_manifest'])
+        index['recordings'][audio_hash] = {'folder': new.name}
+        w.write(index_path, index)
+    checkpoint.unlink()
+
+
 def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
             archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=(), _checked_workspace=False):
     audio = Path(audio).expanduser().absolute()
@@ -91,6 +137,8 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         index = w.read(index_path) if index_path.exists() else {'schema_version': 1, 'device_id': device_context.device_id(), 'recordings': {}}
         device_context.require_device(index.get('device_id'), root)
         index.setdefault('device_id', device_context.device_id())
+        recover_rename(root, index, index_path, audio_hash, requested_audio)
+        missing_audio = not audio.exists()
         entry = index['recordings'].get(audio_hash, {})
         old_folder = managed_folder(root, entry['folder']) if entry else None
         previous = w.read(old_folder / '.archive.json') if old_folder and (old_folder / '.archive.json').exists() else {}
@@ -118,31 +166,45 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         target_folder = root / safe_name(prefix + '_' + topic)
         if target_folder != old_folder and target_folder.exists():
             target_folder = unique_path(target_folder, audio_hash)
-        if old_folder and old_folder.exists() and old_folder != target_folder:
-            relative_audio = audio.relative_to(old_folder) if audio.is_relative_to(old_folder) else None
-            old_folder.rename(target_folder)
-            if relative_audio is not None:
-                audio = target_folder / relative_audio
-            documents = {kind: (target_folder / path.relative_to(old_folder) if path.is_relative_to(old_folder) else path, checksum)
-                         for kind, (path, checksum) in documents.items()}
-        else:
-            target_folder.mkdir(exist_ok=True)
-        manifest = previous or {'schema_version': 1, 'original_audio_path': str(audio), 'files': {}}
+        renaming = bool(old_folder and old_folder.exists() and old_folder != target_folder)
+        relative_audio = audio.relative_to(old_folder) if renaming and audio.is_relative_to(old_folder) else None
+        relocated_audio = target_folder / relative_audio if relative_audio is not None else audio
+        manifest = deepcopy(previous) if previous else {'schema_version': 1, 'original_audio_path': str(audio), 'files': {}}
         manifest['device_id'] = device_context.device_id()
         manifest.update(topic=topic, meeting_date=meeting_date, archive_date=archive_date,
                         date_basis='meeting' if meeting_date else 'archive', audio_sha256=audio_hash)
         destination = target_folder / audio.name
-        if audio != destination:
+        if relocated_audio != destination:
             destination = unique_path(destination, audio_hash)
+        if _checked_workspace and destination.name != requested_audio.name:
+            raise ValueError('归档会改变录音文件名并使已发布链接失效；未移动文件。')
         manifest['audio_file'] = destination.name
         if requested_audio != destination:
-            # Folder renames relocate the recording too; retain the caller's
-            # pre-rename path, including across a failed recovery retry.
             manifest['move_source_path'] = str(requested_audio)
+        intent_path = None
+        if renaming:
+            # Persist both exact manifests and paths BEFORE the only destructive step.
+            # A failed manifest/index write after rename can now be replayed safely.
+            if relative_audio is None:
+                raise ValueError('归档重命名来源不在已登记目录中；未移动文件。')
+            intent_path = rename_intent_file(root, audio_hash)
+            w.write(intent_path, {'schema_version': 1, 'device_id': device_context.device_id(),
+                    'audio_sha256': audio_hash, 'audio_file': relative_audio.name,
+                    'source_path': str(requested_audio), 'old_folder': old_folder.name,
+                    'new_folder': target_folder.name, 'previous_manifest': previous,
+                    'next_manifest': manifest})
+            old_folder.rename(target_folder)
+            audio = relocated_audio
+            documents = {kind: (target_folder / path.relative_to(old_folder) if path.is_relative_to(old_folder) else path, checksum)
+                         for kind, (path, checksum) in documents.items()}
+        else:
+            target_folder.mkdir(exist_ok=True)
         # Write a recovery record before moving; never overwrite a different recording.
         w.write(target_folder / '.archive.json', manifest)
         index['recordings'][audio_hash] = {'folder': target_folder.name}
         w.write(index_path, index)
+        if intent_path:
+            intent_path.unlink()
         if audio != destination:
             shutil.move(str(audio), str(destination))
         if w.file_digest(destination) != audio_hash:
@@ -207,8 +269,13 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
         if source.get('audio_path') != result['audio'] or source.get('archive_dir') != result['folder']:
             source.setdefault('original_audio_path', source['audio_path'])
             source.update(audio_path=result['audio'], archive_dir=result['folder'])
-            w.commit(root, state, {'kind': 'audio_archived', 'source_id': source_id,
-                                   'audio_action': 'move', 'archive_dir': result['folder']})
+            # Relocation changes no reviewed content. Do not create a new export,
+            # advance the semantic revision, or silently re-approve rendered files.
+            # Keep the exact publication and manual audit resolution snapshots.
+            state['updated_at'] = w.now()
+            state.setdefault('changes', []).append({'at': w.now(), 'kind': 'audio_archived',
+                    'source_id': source_id, 'audio_action': 'move', 'archive_dir': result['folder']})
+            w.write(root / 'state.json', state)
         publication['revision'] = state['revision']
         publication.setdefault('archives', {})[source_id] = result
         w.write(root / 'publication.json', publication)

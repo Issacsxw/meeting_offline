@@ -108,7 +108,7 @@ class VoiceReconciliationRegressions(unittest.TestCase):
         self.state['speakers'][0]['identity_group'] = 'b'
         with patch.object(v, 'atomic_write', side_effect=OSError('synthetic disk failure')), \
              patch.object(v, 'speaker_vectors') as extract:
-            with self.assertRaises(OSError):
+            with self.assertRaises(v.ReconciliationError):
                 v.enroll_confirmed(self.root, self.state, ['m-A'])
             extract.assert_not_called()
         self.assertEqual(before, v.location().read_bytes())

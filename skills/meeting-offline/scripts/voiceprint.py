@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from contextlib import ExitStack
 import hashlib
@@ -348,6 +349,22 @@ def confirmed_profiles(state):
     return {p['id']: p for p in memory.read_store(path)['roles'] if p.get('active', True) and p.get('confirmed_by_user') is True and p.get('confirmation')}
 
 
+def confirmed_library_snapshot(state):
+    """Readers share the memory→voice lock order with identity transactions.
+
+    Otherwise another meeting could persist a suggestion from an uncommitted
+    profile and sample that are subsequently rolled back.
+    """
+    store = Path(state.get('memory_store') or device_context.paths()['memory'])
+    path = location()
+    store.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with locked_file(str(store) + '.lock'), locked_file(path.with_suffix('.lock')):
+        known = confirmed_profiles(state)
+        library = {pid: value for pid, value in read_library()['profiles'].items() if pid in known} if known else {}
+        return known, library
+
+
 def match_workspace(root, state=None):
     if state is None:
         import workspace
@@ -363,9 +380,8 @@ def match_workspace(root, state=None):
     device_context.require_device(state.get('device_id'))
     if not status()['enabled']:
         return {'enabled': False, 'matches': {}, 'reason': status()['reason']}
-    known = confirmed_profiles(state)
     try:
-        library = {pid: value for pid, value in read_library()['profiles'].items() if pid in known} if known else {}
+        known, library = confirmed_library_snapshot(state)
     except (ValueError, OSError) as error:
         for speaker in state['speakers']:
             if not speaker.get('role_confirmed') and speaker.get('role_source') == 'voice_match':
@@ -405,7 +421,11 @@ def sample_identity(root, speaker, source):
                                       intervals(speaker)], sort_keys=True).encode()).hexdigest()
 
 
-def reconcile_samples(root, state, speaker_keys):
+class ReconciliationError(ValueError):
+    """A required removal failed; do not commit the new identity mapping."""
+
+
+def reconcile_samples(root, state, speaker_keys, *, _lock_held=False):
     """Remove only changed mappings' obsolete contributions, without extracting audio.
 
     This is deletion, not biometric enrollment: it must also work after consent is
@@ -424,7 +444,7 @@ def reconcile_samples(root, state, speaker_keys):
     if not mappings or not path.exists():
         return
     workspace_path = str(Path(root).resolve())
-    with locked_file(path.with_suffix('.lock')):
+    with nullcontext() if _lock_held else locked_file(path.with_suffix('.lock')):
         data = read_library(); changed = False
         for pid, record in list(data['profiles'].items()):
             samples = record.get('sources', [])
@@ -466,11 +486,18 @@ def reconcile_samples(root, state, speaker_keys):
             atomic_write(path, data)
 
 
-def enroll_confirmed(root, state, speaker_keys):
+def enroll_confirmed(root, state, speaker_keys, *, _lock_held=False, _disabled_snapshot=False):
     """Call after explicit mapping saves, with ALL saved keys (including unknown)."""
     device_context.require_device(state.get('device_id'))
+    # A workspace transaction may snapshot disabled/no-library state. Do not
+    # start enrollment if consent changes while that transaction is running.
+    if _disabled_snapshot:
+        return {'enrolled': [], 'reason': 'disabled'}
     speaker_keys = set(speaker_keys)
-    reconcile_samples(root, state, speaker_keys)
+    try:
+        reconcile_samples(root, state, speaker_keys, _lock_held=_lock_held)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise ReconciliationError("旧声纹贡献撤回失败，身份修改未保存，请重试。") from error
     if not status()['enabled']:
         return {'enrolled': [], 'reason': 'disabled'}
     known = confirmed_profiles(state)
@@ -481,7 +508,7 @@ def enroll_confirmed(root, state, speaker_keys):
     if not vectors:
         return {'enrolled': [], 'skipped': skipped}
     path = location(); path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with locked_file(path.with_suffix('.lock')):
+    with nullcontext() if _lock_held else locked_file(path.with_suffix('.lock')):
         if not status()['enabled']:
             return {'enrolled': [], 'reason': 'disabled'}
         data = read_library(); enrolled = []

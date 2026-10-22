@@ -66,7 +66,7 @@ class LegacyReconfirmationTests(unittest.TestCase):
             self.assertEqual(keys, {'m-A'})
             return {'m-A': [1., 0.]}, {}
         with patch.object(v, 'speaker_vectors', side_effect=vectors):
-            self.post_roles([{'key': 'm-A', 'profile_id': 'person-a'}])
+            self.post_roles([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}])
         roles = {p['id']: p for p in w.read(self.store)['roles']}
         self.assertIs(roles['person-a']['confirmed_by_user'], True)
         self.assertIn('明确选择已有档案', roles['person-a']['confirmation'])
@@ -90,7 +90,7 @@ class LegacyReconfirmationTests(unittest.TestCase):
 
     def test_stale_or_invalid_selection_does_not_upgrade_any_profile(self):
         before = self.store.read_bytes()
-        for mappings, revision in [([{'key': 'm-A', 'profile_id': 'person-a'}], 0),
+        for mappings, revision in [([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}], 0),
                                     ([{'key': 'm-A', 'profile_id': 'person-missing'}], self.revision())]:
             with self.assertRaises(ValueError):
                 w.save_roles(self.root, mappings, revision)
@@ -101,7 +101,7 @@ class LegacyReconfirmationTests(unittest.TestCase):
         memory['roles'][0].pop('created_at')
         w.write(self.store, memory)
         with patch.object(v, 'speaker_vectors', return_value=({}, {})):
-            w.save_roles(self.root, [{'key': 'm-A', 'profile_id': 'person-a'}], self.revision(), via='chat')
+            w.save_roles(self.root, [{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}], self.revision(), via='chat')
         profile = next(p for p in w.read(self.store)['roles'] if p['id'] == 'person-a')
         self.assertTrue(profile['confirmed_by_user'])
         self.assertTrue(profile['created_at'])
@@ -111,7 +111,7 @@ class LegacyReconfirmationTests(unittest.TestCase):
         memory = w.read(self.store); memory['roles'][0]['confirmed_by_user'] = True
         w.write(self.store, memory); before = self.store.read_bytes()
         with patch.object(v, 'speaker_vectors', return_value=({}, {})):
-            w.save_roles(self.root, [{'key': 'm-A', 'profile_id': 'person-a'}], self.revision())
+            w.save_roles(self.root, [{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}], self.revision())
         self.assertEqual(self.store.read_bytes(), before)
 
 

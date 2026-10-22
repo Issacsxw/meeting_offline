@@ -421,6 +421,18 @@ def sample_identity(root, speaker, source):
                                       intervals(speaker)], sort_keys=True).encode()).hexdigest()
 
 
+class LibraryUnavailable(ValueError):
+    """An unreadable library is left untouched and cannot enroll or match."""
+
+
+def read_available_library():
+    try:
+        return read_library()
+    except (ValueError, OSError) as error:
+        raise LibraryUnavailable('声纹库无法读取或与本机模型不兼容；已保留原文件，本次不登记声纹。'
+                                 '请备份后在声纹设置中关闭并清除旧库，再按需重新启用、确认身份。原因：' + str(error)) from error
+
+
 class ReconciliationError(ValueError):
     """A required removal failed; do not commit the new identity mapping."""
 
@@ -445,7 +457,8 @@ def reconcile_samples(root, state, speaker_keys, *, _lock_held=False):
         return
     workspace_path = str(Path(root).resolve())
     with nullcontext() if _lock_held else locked_file(path.with_suffix('.lock')):
-        data = read_library(); changed = False
+        data = read_available_library()
+        changed = False
         for pid, record in list(data['profiles'].items()):
             samples = record.get('sources', [])
             def obsolete(sample):
@@ -486,20 +499,20 @@ def reconcile_samples(root, state, speaker_keys, *, _lock_held=False):
             atomic_write(path, data)
 
 
-def enroll_confirmed(root, state, speaker_keys, *, _lock_held=False, _disabled_snapshot=False):
+def enroll_confirmed(root, state, speaker_keys, *, _lock_held=False, _reconcile_keys=None):
     """Call after explicit mapping saves, with ALL saved keys (including unknown)."""
     device_context.require_device(state.get('device_id'))
-    # A workspace transaction may snapshot disabled/no-library state. Do not
-    # start enrollment if consent changes while that transaction is running.
-    if _disabled_snapshot:
-        return {'enrolled': [], 'reason': 'disabled'}
     speaker_keys = set(speaker_keys)
     try:
-        reconcile_samples(root, state, speaker_keys, _lock_held=_lock_held)
+        reconcile_samples(root, state, speaker_keys if _reconcile_keys is None else set(_reconcile_keys), _lock_held=_lock_held)
+    except LibraryUnavailable:
+        raise
     except (OSError, ValueError, RuntimeError) as error:
-        raise ReconciliationError("旧声纹贡献撤回失败，身份修改未保存，请重试。") from error
+        raise ReconciliationError('旧声纹贡献撤回失败，身份修改未保存。请检查声纹库目录的写权限和磁盘空间；'
+                                  '备份并修复声纹库后再保存，或在声纹设置中关闭并清除旧库。原因：' + str(error)) from error
     if not status()['enabled']:
         return {'enrolled': [], 'reason': 'disabled'}
+    read_available_library()  # Never extract against an unreadable or incompatible library.
     known = confirmed_profiles(state)
     eligible = {s['key']: s for s in state['speakers'] if s['key'] in speaker_keys and
                 s.get('role_confirmed') is True and not s.get('accepted_unknown') and not unassigned(s) and
@@ -511,7 +524,7 @@ def enroll_confirmed(root, state, speaker_keys, *, _lock_held=False, _disabled_s
     with nullcontext() if _lock_held else locked_file(path.with_suffix('.lock')):
         if not status()['enabled']:
             return {'enrolled': [], 'reason': 'disabled'}
-        data = read_library(); enrolled = []
+        data = read_available_library(); enrolled = []
         for key, vector in vectors.items():
             speaker = eligible[key]; pid = speaker['identity_group']
             source = next(s for s in state['sources'] if s['source_id'] == speaker['source_id'])
@@ -540,7 +553,11 @@ def enroll_confirmed(root, state, speaker_keys, *, _lock_held=False, _disabled_s
                 'confirmed_at': now(), 'vector': vector}]}
             enrolled.append(key)
         if enrolled:
-            atomic_write(path, data)
+            try:
+                atomic_write(path, data)
+            except OSError as error:
+                raise ReconciliationError('声纹库写入失败，身份修改未保存。请检查目录写权限和磁盘空间，'
+                                          '修复后重试；或在声纹设置中关闭并清除旧库。原因：' + str(error)) from error
     return {'enrolled': enrolled, 'skipped': skipped}
 
 

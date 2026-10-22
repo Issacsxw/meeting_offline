@@ -42,12 +42,12 @@ class IdentityTransactionTests(unittest.TestCase):
         with patch.object(v, 'location', return_value=library), \
                 patch.object(v, 'status', side_effect=[{'enabled': False}, {'enabled': True}]), \
                 patch.object(v, 'speaker_vectors', side_effect=AssertionError('disabled snapshot')):
-            w.save_roles(self.root, [{'key': 'm-A', 'profile_id': 'person-a'}], self.revision())
+            w.save_roles(self.root, [{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}], self.revision())
         self.assertFalse(library.parent.exists())
         self.assertTrue(w.read(self.root / 'state.json')['speakers'][0]['role_confirmed'])
 
     def test_http_failed_withdrawal_is_not_saved_and_retry_removes_old_sample(self):
-        self.save([{'key': 'm-A', 'profile_id': 'person-a'}]); before = self.snapshot()
+        self.save([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}]); before = self.snapshot()
         server = review.ReviewServer(self.root)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         try:
@@ -71,7 +71,7 @@ class IdentityTransactionTests(unittest.TestCase):
         self.assertTrue(w.read(self.root / 'state.json')['speakers'][0]['accepted_unknown'])
 
     def test_export_failure_restores_workspace_memory_and_voice_then_retry_is_idempotent(self):
-        self.save([{'key': 'm-A', 'profile_id': 'person-a'}]); before = self.snapshot()
+        self.save([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}]); before = self.snapshot()
         mapping = [{'key': 'm-A', 'name': '新合成人物', 'entity_type': 'person', 'scope': '合成测试'}]
         with patch.object(w, 'export', side_effect=OSError('synthetic export failure')):
             with self.assertRaises(OSError): self.save(mapping)
@@ -103,7 +103,7 @@ class IdentityTransactionTests(unittest.TestCase):
         self.assertEqual(len([p for p in w.read(self.store)['roles'] if p['name'] == '新合成人物']), 1)
 
     def test_optional_extraction_failure_still_clears_obsolete_contribution(self):
-        self.save([{'key': 'm-A', 'profile_id': 'person-a'}])
+        self.save([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}])
         with patch.object(v, 'speaker_vectors', side_effect=RuntimeError('model unavailable')):
             w.save_roles(self.root, [{'key': 'm-A', 'profile_id': 'person-b'}], self.revision())
         state = w.read(self.root / 'state.json')
@@ -112,7 +112,7 @@ class IdentityTransactionTests(unittest.TestCase):
         self.assertNotIn('person-a', v.read_library()['profiles'])
 
     def test_rollback_holds_shared_locks_and_does_not_erase_concurrent_other_updates(self):
-        self.save([{'key': 'm-A', 'profile_id': 'person-a'}])
+        self.save([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}])
         memory.upsert_confirmed(self.store, 'role', {**self.fixture.roles[1], 'confirmation': 'explicit synthetic confirmation'})
         other = copy.deepcopy(w.read(self.root / 'state.json'))
         other['speakers'][0].update(identity_group='person-b', role_confirmed=True)

@@ -14,7 +14,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import uuid
@@ -197,6 +196,21 @@ def commit(root, state, change):
 
 
 
+def restore_bytes(backups):
+    """Restore exact snapshots independently of the failing JSON writer."""
+    for path, content in backups.items():
+        if content is None:
+            path.unlink(missing_ok=True)
+            continue
+        fd, temporary = tempfile.mkstemp(prefix='.rollback-', dir=str(path.parent))
+        try:
+            with os.fdopen(fd, 'wb') as handle:
+                handle.write(content); handle.flush(); os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
+
+
 def commit_analysis(root, state, change, analysis):
     """Commit analysis and its state under the caller's workspace lock; roll back failed writes."""
     root = Path(root)
@@ -207,20 +221,7 @@ def commit_analysis(root, state, change, analysis):
         write(root / 'analysis.json', analysis)
         return commit(root, state, change)
     except Exception:
-        for path, content in backups.items():
-            if content is None:
-                path.unlink(missing_ok=True)
-            else:
-                # Restore exact bytes independently of the failing JSON writer.
-                fd, temporary = tempfile.mkstemp(prefix='.rollback-', dir=str(path.parent))
-                try:
-                    with os.fdopen(fd, 'wb') as handle:
-                        handle.write(content)
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                    os.replace(temporary, path)
-                finally:
-                    if os.path.exists(temporary): os.unlink(temporary)
+        restore_bytes(backups)
         raise
 
 
@@ -282,17 +283,7 @@ def identity_store_transaction(state):
         try:
             yield voice_active
         except Exception:
-            for path, content in backups.items():
-                if content is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    fd, temporary = tempfile.mkstemp(prefix='.identity-rollback-', dir=str(path.parent))
-                    try:
-                        with os.fdopen(fd, 'wb') as handle:
-                            handle.write(content); handle.flush(); os.fsync(handle.fileno())
-                        os.replace(temporary, path)
-                    finally:
-                        if os.path.exists(temporary): os.unlink(temporary)
+            restore_bytes(backups)
             raise
 
 
@@ -326,13 +317,17 @@ def save_roles(root, mappings, expected, via='page'):
                     if profile_id not in profiles:
                         raise ValueError('Unknown/inactive profile.')
                     profile = profiles[profile_id]
-                    if profile.get('confirmed_by_user') is not True or not profile.get('confirmation'):
+                    original = old_speakers[mapping['key']]
+                    explicit = (mapping.get('confirm_identity') is True or not original.get('role_confirmed')
+                                or original.get('identity_group') != profile_id)
+                    if explicit and (profile.get('confirmed_by_user') is not True or not profile.get('confirmation')):
                         # A current explicit selection upgrades only this legacy profile.
                         profile = {**profile, 'confirmation': ({
                             'page': '用户在本地说话人复核页明确选择已有档案并保存：',
                             'html': '用户在纪要网页中明确确认已有档案：'
                         }.get(via, '用户在对话中明确确认已有档案：')) + mapping['key']}
                         reconfirmed_profiles.append(profile)
+                    memory.validate_entry('role', profile)
                 else:
                     name = str(mapping.get('name', '')).strip()
                     role = str(mapping.get('role_title', '')).strip()
@@ -376,16 +371,21 @@ def save_roles(root, mappings, expected, via='page'):
                         'definition': profile.get('role_title', ''),
                         'confirmation': {'page': '用户在本地角色复核页明确选择具体人物并填写姓名。', 'html': '用户在纪要网页中修改并确认'}.get(via, '用户在对话中明确确认具体人物的姓名。')}, _lock_held=True)
             import voiceprint
+            changed_keys = [key for key, _ in resolved if any(
+                (old_speakers[key].get(field) if field == 'identity_group' else bool(old_speakers[key].get(field))) !=
+                (speakers[key].get(field) if field == 'identity_group' else bool(speakers[key].get(field)))
+                for field in ('identity_group', 'role_confirmed', 'accepted_unknown'))]
+            state.pop('voiceprint_enrollment_warning', None)
             try:
-                voiceprint.enroll_confirmed(root, state, [key for key, _ in resolved], _lock_held=voice_active, _disabled_snapshot=not voice_active)
+                if voice_active:
+                    voiceprint.enroll_confirmed(root, state, [key for key, _ in resolved],
+                                                _lock_held=True, _reconcile_keys=changed_keys)
             except voiceprint.ReconciliationError:
                 raise  # A failed withdrawal must never be reported as saved.
             except (ValueError, RuntimeError, OSError, ImportError) as error:
                 state['voiceprint_enrollment_warning'] = str(error)
             change = {'kind': 'roles_confirmed', 'speaker_keys': [m[0] for m in resolved], 'actor': 'user'}
-            if updated_analysis is not None:
-                return commit_analysis(root, state, change, updated_analysis)
-            return commit(root, state, change)
+            return commit_analysis(root, state, change, updated_analysis)
 
 def sync_reader_names(root, state, old_speakers, keys):
     """Apply the same conservative single-pass rename as HTML; withhold unsafe stale prose."""
@@ -991,7 +991,7 @@ def main():
                 result = audit.report(args.workspace)
         else: result = export(Path(args.workspace))
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as exc:
+    except (ValueError, OSError, KeyError) as exc:
         parser.exit(2, str(exc) + '\n')
 
 

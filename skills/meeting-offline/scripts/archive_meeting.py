@@ -47,10 +47,26 @@ def unique_path(path, identity):
 
 
 def managed_folder(root, name):
+    if (not isinstance(name, str) or name in ('', '.', '..') or
+            '/' in name or '\\' in name):
+        raise ValueError('归档索引中的目录不安全；目录名必须是单层名称，不能含 .、.. 或路径分隔符。')
     path = root / name
     if path.parent.resolve() != root or path.is_symlink():
         raise ValueError('归档索引中的目录不安全。')
     return path
+
+
+def require_owner(record, workspace_id, source_id, *, allow_unbound=False):
+    """Hashes identify audio bytes, not ownership of reviewed deliverables."""
+    actual = (record.get('workspace_id'), record.get('source_id'))
+    expected = (workspace_id, source_id)
+    if actual == expected or (allow_unbound and actual == (None, None)):
+        return
+    if actual == (None, None):
+        raise ValueError('旧归档缺少工作区和来源绑定，不能自动认领或恢复；请保留原目录，'
+                         '从可信原录音取得独立副本，再用新的 --root 归档。不要手工补写归属字段。')
+    raise ValueError('归档属于其他工作区或来源，不能移动录音或覆盖文档；请继续使用原工作区和来源，'
+                     '或从可信原录音取得独立副本，再用新的 --root 归档。')
 
 
 def index_file(root):
@@ -66,7 +82,7 @@ def rename_intent_file(root, audio_hash):
     return root / ('.archive-rename-' + w.digest([device_context.device_id(), audio_hash]) + '.json')
 
 
-def recover_rename(root, index, index_path, audio_hash, requested_audio):
+def recover_rename(root, index, index_path, audio_hash, requested_audio, workspace_id=None, source_id=None):
     """Recover only the exact durable rename intent, never guess from directory names."""
     checkpoint = rename_intent_file(root, audio_hash)
     if checkpoint.is_symlink():
@@ -75,17 +91,24 @@ def recover_rename(root, index, index_path, audio_hash, requested_audio):
         return
     intent = w.read(checkpoint)
     device_context.require_device(intent.get('device_id'), root)
-    if (intent.get('audio_sha256') != audio_hash or
-            intent.get('source_path') != str(requested_audio)):
-        raise ValueError('归档重命名恢复记录与来源不一致。')
+    require_owner(intent, workspace_id, source_id)
+    if intent.get('audio_sha256') != audio_hash:
+        raise ValueError('归档重命名恢复记录与录音校验值不一致；请保留恢复记录并核对原工作区来源。')
+    if intent.get('source_path') != str(requested_audio):
+        raise ValueError('归档重命名恢复的 audio 路径不同；请使用原工作区和来源重试，录音路径应为：'
+                         + str(intent.get('source_path')) + '。不要移动目录或删除恢复记录。')
     old = managed_folder(root, intent['old_folder'])
     new = managed_folder(root, intent['new_folder'])
     name = intent.get('audio_file')
     if not isinstance(name, str) or Path(name).name != name or name in ('', '.', '..'):
         raise ValueError('归档重命名录音路径不安全。')
     indexed = index['recordings'].get(audio_hash, {}).get('folder')
-    if indexed not in (old.name, new.name) or old == new or old.exists() == new.exists():
-        raise ValueError('归档重命名目录状态不一致。')
+    if old.exists() and new.exists():
+        raise ValueError('归档重命名目标已被占用：' + str(new) + '；请核对两个目录，'
+                         '将非本次归档的占用目录移到归档根目录之外后重试；不要覆盖目录或删除恢复记录。')
+    if indexed not in (old.name, new.name) or old == new or not (old.exists() or new.exists()):
+        raise ValueError('归档重命名目录状态不一致；请从备份恢复原目录 ' + str(old)
+                         + ' 或已移动目录 ' + str(new) + '，保留恢复记录，再用原工作区和来源重试。')
     folder = old if old.exists() else new
     manifest_path = folder / '.archive.json'
     audio = folder / name
@@ -95,10 +118,12 @@ def recover_rename(root, index, index_path, audio_hash, requested_audio):
         raise ValueError('归档重命名恢复校验失败。')
     for manifest in (intent['previous_manifest'], intent['next_manifest']):
         device_context.require_device(manifest.get('device_id'), root)
+        require_owner(manifest, workspace_id, source_id)
         if manifest.get('audio_sha256') != audio_hash or manifest.get('audio_file') != name:
             raise ValueError('归档重命名恢复清单不一致。')
     if intent['next_manifest'].get('move_source_path') != str(requested_audio):
-        raise ValueError('归档重命名恢复来源不一致。')
+        raise ValueError('归档重命名恢复来源不一致；请保留恢复记录，核对原工作区的 audio 路径：'
+                         + str(intent.get('source_path')) + '，不要手工覆盖来源字段。')
     if folder == new:
         w.write(manifest_path, intent['next_manifest'])
         index['recordings'][audio_hash] = {'folder': new.name}
@@ -107,7 +132,10 @@ def recover_rename(root, index, index_path, audio_hash, requested_audio):
 
 
 def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
-            archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=(), _checked_workspace=False):
+            archive_date=None, html=None, png=None, expected_hash=None, extra=None, withdraw=(), _checked_workspace=False,
+            workspace_id=None, source_id=None):
+    if (workspace_id is None) != (source_id is None) or (_checked_workspace and not workspace_id):
+        raise ValueError('工作区归档必须同时提供有效的 workspace_id 和 source_id。')
     audio = Path(audio).expanduser().absolute()
     requested_audio = audio
     missing_audio = not audio.exists()
@@ -137,13 +165,31 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         index = w.read(index_path) if index_path.exists() else {'schema_version': 1, 'device_id': device_context.device_id(), 'recordings': {}}
         device_context.require_device(index.get('device_id'), root)
         index.setdefault('device_id', device_context.device_id())
-        recover_rename(root, index, index_path, audio_hash, requested_audio)
-        missing_audio = not audio.exists()
+        recover_rename(root, index, index_path, audio_hash, requested_audio, workspace_id, source_id)
         entry = index['recordings'].get(audio_hash, {})
         old_folder = managed_folder(root, entry['folder']) if entry else None
-        previous = w.read(old_folder / '.archive.json') if old_folder and (old_folder / '.archive.json').exists() else {}
+        previous = {}
+        if old_folder:
+            manifest_path = old_folder / '.archive.json'
+            if manifest_path.is_symlink() or not manifest_path.is_file():
+                raise ValueError('归档清单缺失或不安全，无法验证工作区归属；请从备份恢复 .archive.json，'
+                                 '或保留原目录并用独立录音副本和新的 --root 归档。')
+            previous = w.read(manifest_path)
+            if not isinstance(previous, dict) or not previous or previous.get('audio_sha256') != audio_hash:
+                raise ValueError('归档清单无效，无法验证录音和工作区归属；请从备份恢复 .archive.json 后重试。')
         if previous:
             device_context.require_device(previous.get('device_id'), root)
+            # The audio-only first step may be adopted once, using its actual archived file.
+            # Missing sources and legacy deliverables cannot establish workspace ownership.
+            initial_binding = (workspace_id is not None and not previous.get('files')
+                    and previous.get('audio_sha256') == audio_hash
+                    and requested_audio == old_folder / str(previous.get('audio_file'))
+                    and requested_audio.is_file())
+            require_owner(previous, workspace_id, source_id, allow_unbound=initial_binding)
+            if initial_binding and previous.get('workspace_id') is None and previous.get('source_id') is None:
+                # Bind before creating an intent, so both intent snapshots carry the owner.
+                previous.update(workspace_id=workspace_id, source_id=source_id)
+                w.write(old_folder / '.archive.json', previous)
         if missing_audio:
             # Only reclaim a moved recording from a matching, verified checkpoint.
             # A hash alone is not proof that this missing source belongs to that archive.
@@ -171,6 +217,7 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
         relocated_audio = target_folder / relative_audio if relative_audio is not None else audio
         manifest = deepcopy(previous) if previous else {'schema_version': 1, 'original_audio_path': str(audio), 'files': {}}
         manifest['device_id'] = device_context.device_id()
+        manifest.update(workspace_id=workspace_id, source_id=source_id)
         manifest.update(topic=topic, meeting_date=meeting_date, archive_date=archive_date,
                         date_basis='meeting' if meeting_date else 'archive', audio_sha256=audio_hash)
         destination = target_folder / audio.name
@@ -190,6 +237,7 @@ def collect(audio, *, root=DEFAULT_ROOT, topic=None, meeting_date=None,
             intent_path = rename_intent_file(root, audio_hash)
             w.write(intent_path, {'schema_version': 1, 'device_id': device_context.device_id(),
                     'audio_sha256': audio_hash, 'audio_file': relative_audio.name,
+                    'workspace_id': workspace_id, 'source_id': source_id,
                     'source_path': str(requested_audio), 'old_folder': old_folder.name,
                     'new_folder': target_folder.name, 'previous_manifest': previous,
                     'next_manifest': manifest})
@@ -263,6 +311,7 @@ def collect_workspace(root, source_id, *, archive_root=DEFAULT_ROOT, archive_dat
                          topic=analysis.get('reader', {}).get('topic') or analysis.get('title') or source.get('title'),
                          meeting_date=analysis.get('meeting_date'), archive_date=archive_date,
                          expected_hash=source.get('audio_sha256'), _checked_workspace=True,
+                         workspace_id=w.workspace_identity(root, state), source_id=source_id,
                          html=documents['html']['path'], png=documents['png']['path'],
                          extra={k: v['path'] for k, v in documents.items() if k not in ('html', 'png')},
                          withdraw=[k for k in ('insight_md',) if k not in documents])

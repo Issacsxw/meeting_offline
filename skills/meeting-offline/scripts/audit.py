@@ -151,7 +151,8 @@ def time_fact(hour, minute, period=None, spoken=False):
         if period in ('下午', '中午', '傍晚') and hour < 12:
             hour += 12
         elif period == '晚上':
-            hour = hour + 12 if hour < 12 else 0
+            # Colloquial 晚上一到四点 refers to the hours after midnight.
+            hour = hour if hour <= 4 else hour + 12 if hour < 12 else 0
         elif period == '凌晨' and hour == 12:
             hour = 0
     kind = 'time_ambiguous' if spoken and not period and 1 <= hour <= 12 else 'time'
@@ -184,16 +185,29 @@ def facts(text):
             found.add(fact)
     rest = CLOCK.sub(' ', rest)
 
+    previous_time = None
+
     def spoken(m):  # A bare 三点建议 is numeric; 三点交付 has a time context.
-        contextual = re.match(r'(?:前|后|左右|整|准时|开始|结束|交付|提交|完成|开会|召开|到达|出发|上线|截止)', rest[m.end():])
-        if not (m.group(1) or m.group(3) or contextual or (as_int(m.group(2)) or 0) > 12):
+        nonlocal previous_time
+        if rest[:m.start()].rstrip().endswith('第'):
+            return m.group(0)
+        period = m.group(1)
+        if (not period and previous_time is not None
+                and re.fullmatch(r'\s*(?:到|至|[-–—~～])\s*', rest[previous_time[0]:m.start()])):
+            period = previous_time[1]
+        contextual = re.match(
+            r'(?:前(?![提景言期程途线沿端])|后(?![续果勤台备面方])|左右|'
+            r'整(?![改理体合顿治修装编])|准时|开始|结束|交付|提交|完成|开会|召开|到达|出发|上线|截止)',
+            rest[m.end():])
+        if not (period or m.group(3) or contextual or (as_int(m.group(2)) or 0) > 12):
             return m.group(0)
         hour = as_int(m.group(2))
         minute = 30 if m.group(3) == '半' else as_int(m.group(4)) if m.group(4) else 0
-        fact = time_fact(hour, minute, m.group(1), spoken=True)
+        fact = time_fact(hour, minute, period, spoken=True)
         if fact is None:
             return m.group(0)
         found.add(fact)
+        previous_time = (m.end(), period)
         return ' '
     rest = SPOKEN_TIME.sub(spoken, rest)
     for m in PERCENT.finditer(rest):

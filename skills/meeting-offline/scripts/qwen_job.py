@@ -207,7 +207,7 @@ def execute(args, api):
                 manifest['result_cache_invalid'] = True
                 save_json(manifest_path, manifest)
                 quarantined = quarantine_result(result_path)
-                print('[Qwen] 无效的最终缓存已隔离为 ' + quarantined + '；仅尝试本机恢复或显式导入。', file=sys.stderr)
+                print('[Qwen] 无效的最终缓存已隔离为 ' + quarantined + '；仅尝试本机恢复、续取已有任务或显式导入。', file=sys.stderr)
             else:
                 if manifest['status'] != 'completed' or manifest.get('result_cache_invalid'):
                     stage('completed')
@@ -217,7 +217,7 @@ def execute(args, api):
         if args.import_result:
             if config['vocabulary']:
                 raise api.TranscriptionError('导入的已有结果不能标记为“使用了热词”；去掉 --hotwords 再导入。')
-            if manifest.get('task_id') and manifest['status'] != 'completed':
+            if manifest.get('task_id') and manifest['status'] not in ('completed', 'result_ready'):
                 raise api.TranscriptionError('这段录音已有进行中的云端任务，不能用导入结果替换。')
             try:
                 result = json.loads(Path(args.import_result).expanduser().read_text(encoding='utf-8'))
@@ -244,6 +244,10 @@ def execute(args, api):
             stage('completed')
             print('[Qwen] 从本机响应检查点恢复，未联网、未读取密钥', file=sys.stderr)
             return recovered
+        # Only known, unfinished result retrieval may resume through read-only GETs.
+        # A damaged cache must never make a job eligible for a new paid submission.
+        can_refetch = (config['route'] == 'temporary_storage' and bool(manifest.get('task_id'))
+                       and manifest['status'] in ('result_ready', 'processing'))
         raw_path, task_path = directory / 'transcript-raw.json', directory / 'task-response.json'
         if (config['route'] == 'temporary_storage' and manifest.get('task_id')
                 and raw_path.exists() and task_path.exists()):
@@ -255,7 +259,7 @@ def execute(args, api):
                 recovered = api.normalize_long(raw, task, config['duration_seconds'])
                 check_result(recovered, config, api.TranscriptionError)
             except (OSError, ValueError, TypeError, AttributeError, api.TranscriptionError) as exc:
-                if manifest['status'] == 'completed' or manifest.get('result_cache_invalid'):
+                if manifest['status'] == 'completed' or (manifest.get('result_cache_invalid') and not can_refetch):
                     raise api.TranscriptionError('已有任务的本机检查点无效，无法安全恢复；不会重新提交。请检查任务目录或显式导入已有结果。') from exc
                 print('[Qwen] 已保存的原始结果无效，将只重新获取现有任务的结果，不重新上传或提交。', file=sys.stderr)
             else:
@@ -263,7 +267,7 @@ def execute(args, api):
                 stage('completed')
                 print('[Qwen] 从本机原始结果恢复，未联网、未读取密钥', file=sys.stderr)
                 return recovered
-        if manifest['status'] == 'completed' or manifest.get('result_cache_invalid'):
+        if manifest['status'] == 'completed' or (manifest.get('result_cache_invalid') and not can_refetch):
             raise api.TranscriptionError('已有任务的结果缓存缺失或无效，且没有可验证的本机检查点；不会重新提交。请显式导入已有结果。')
         if manifest['status'] in ('submitting', 'uncertain_submission'):
             raise api.TranscriptionError('上次提交的结果不确定（可能已在阿里云处理并计费），为避免重复扣费不会自动重试。请先在百炼控制台确认，再用新的 --job-dir 重新提交。')
@@ -342,6 +346,7 @@ def execute(args, api):
             stage('processing')
             # A timeout retains task_id; the next run resumes polling, never uploading.
             task = api.poll_task(manifest['task_id'], key, config['base_url'], args.poll_seconds, args.timeout_seconds)
+            check_checkpoint_task(task, manifest, api.TranscriptionError)
             save_json(task_path, task)
             stage('result_ready')
         results = task.get('output', {}).get('results', [])

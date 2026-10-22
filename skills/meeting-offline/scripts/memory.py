@@ -49,11 +49,15 @@ def validate_entry(kind, entry):
     for field in required:
         if not isinstance(entry.get(field), str) or not entry[field].strip():
             raise ValueError('Missing nonempty string: ' + field)
+    if kind == 'role' and 'role_title' in entry and not isinstance(entry['role_title'], str):
+        raise ValueError('role_title must be a string.')
     if kind == 'role' and entry.get('entity_type') not in ('person', 'role'):
         raise ValueError('Role entity_type must be person or role.')
     for field in ('aliases', 'responsibilities', 'distinctive_signals'):
         if field in entry and (not isinstance(entry[field], list) or any(not isinstance(s, str) for s in entry[field])):
             raise ValueError(field + ' must be a list of strings.')
+    if 'revision' in entry and (type(entry['revision']) is not int or entry['revision'] < 1):
+        raise ValueError('revision must be a positive integer.')
     if 'active' in entry and type(entry['active']) is not bool:
         raise ValueError('active must be boolean.')
 
@@ -87,6 +91,8 @@ def upsert_confirmed(path, kind, entry, *, _lock_held=False):
         prior = next((e for e in data[bucket] if e['id'] == entry['id']), None)
         now = datetime.now(timezone.utc).isoformat()
         if prior:
+            if 'revision' in prior and (type(prior['revision']) is not int or prior['revision'] < 1):
+                raise ValueError('revision must be a positive integer.')
             data['history'].append({'kind': kind, 'replaced_at': now, 'previous': deepcopy(prior)})
             # Preserve established aliases and other fields unless explicitly replaced.
             new_entry = {**prior, **entry}

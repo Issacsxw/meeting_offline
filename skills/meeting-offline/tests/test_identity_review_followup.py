@@ -1,5 +1,6 @@
 """Review follow-up: explicit consent and unavailable-library degradation."""
 import json
+from copy import deepcopy
 import urllib.error
 import unittest
 from unittest.mock import patch
@@ -46,6 +47,46 @@ class IdentityReviewFollowupTests(unittest.TestCase):
             self.f.post_roles([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}])
         self.assertEqual(error.exception.code, 400)
         self.assertIn('name', json.load(error.exception)['error'])
+        self.assertEqual(before, self.store.read_bytes())
+
+    def test_one_explicit_card_cannot_enroll_resent_card_sharing_legacy_profile(self):
+        state = w.read(self.root / 'state.json')
+        other = deepcopy(state['speakers'][0]); other['key'] = 'm-B'
+        state['speakers'].append(other); w.write(self.root / 'state.json', state)
+        with patch.object(v, 'speaker_vectors', return_value=({'m-A': [1., 0.]}, {})) as extract:
+            self.f.post_roles([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True},
+                               {'key': 'm-B', 'profile_id': 'person-a'}])
+        self.assertEqual(extract.call_args.args[2], {'m-A'})
+        sources = v.read_library()['profiles']['person-a']['sources']
+        self.assertEqual([x['speaker_key'] for x in sources], ['m-A'])
+
+    def test_explicit_confirmation_can_supply_missing_legacy_confirmation(self):
+        memory = w.read(self.store); memory['roles'][0].pop('confirmation')
+        w.write(self.store, memory)
+        with patch.object(v, 'speaker_vectors', return_value=({}, {})):
+            self.f.post_roles([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}])
+        profile = next(x for x in w.read(self.store)['roles'] if x['id'] == 'person-a')
+        self.assertTrue(profile['confirmed_by_user'])
+        self.assertTrue(profile['confirmation'])
+
+    def test_malformed_legacy_revision_returns_http400(self):
+        for value in ('old', None, True, 0):
+            with self.subTest(value=value):
+                memory = w.read(self.store); memory['roles'][0]['revision'] = value
+                w.write(self.store, memory); before = self.store.read_bytes()
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    self.f.post_roles([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}])
+                self.assertEqual(error.exception.code, 400)
+                self.assertIn('revision', json.load(error.exception)['error'])
+                self.assertEqual(before, self.store.read_bytes())
+
+    def test_malformed_legacy_role_title_returns_http400(self):
+        memory = w.read(self.store); memory['roles'][0]['role_title'] = 123
+        w.write(self.store, memory); before = self.store.read_bytes()
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.f.post_roles([{'key': 'm-A', 'profile_id': 'person-a', 'confirm_identity': True}])
+        self.assertEqual(error.exception.code, 400)
+        self.assertIn('role_title', json.load(error.exception)['error'])
         self.assertEqual(before, self.store.read_bytes())
 
     def test_unreadable_libraries_allow_change_with_actionable_warning_and_no_write(self):

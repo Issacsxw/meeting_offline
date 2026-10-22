@@ -302,6 +302,7 @@ def save_roles(root, mappings, expected, via='page'):
             resolved = []
             new_profiles = []
             reconfirmed_profiles = []
+            enrollment_keys = []
             for mapping in mappings:
                 if mapping['key'] not in speakers:
                     raise ValueError('Unknown speaker.')
@@ -328,6 +329,8 @@ def save_roles(root, mappings, expected, via='page'):
                         }.get(via, '用户在对话中明确确认已有档案：')) + mapping['key']}
                         reconfirmed_profiles.append(profile)
                     memory.validate_entry('role', profile)
+                    if explicit:
+                        enrollment_keys.append(mapping['key'])
                 else:
                     name = str(mapping.get('name', '')).strip()
                     role = str(mapping.get('role_title', '')).strip()
@@ -343,6 +346,7 @@ def save_roles(root, mappings, expected, via='page'):
                         'scope': scope, 'role_title': role, 'aliases': [],
                         'confirmation': ({'page': '用户在本地说话人复核页明确填写并保存：', 'html': '用户在纪要网页中修改并确认：'}.get(via, '用户在对话中明确确认：')) + mapping['key']}
                     new_profiles.append(profile)
+                    enrollment_keys.append(mapping['key'])
                 resolved.append((mapping['key'], profile))
             for key, profile in resolved:
                 speaker = speakers[key]
@@ -378,7 +382,7 @@ def save_roles(root, mappings, expected, via='page'):
             state.pop('voiceprint_enrollment_warning', None)
             try:
                 if voice_active:
-                    voiceprint.enroll_confirmed(root, state, [key for key, _ in resolved],
+                    voiceprint.enroll_confirmed(root, state, enrollment_keys,
                                                 _lock_held=True, _reconcile_keys=changed_keys)
             except voiceprint.ReconciliationError:
                 raise  # A failed withdrawal must never be reported as saved.
